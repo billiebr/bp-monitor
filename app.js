@@ -86,7 +86,7 @@
         c.height = Math.round(img.height * scale);
         c.getContext('2d').drawImage(img, 0, 0, c.width, c.height);
         URL.revokeObjectURL(url);
-        resolve(c.toDataURL('image/jpeg', 0.85));
+        resolve(c.toDataURL('image/jpeg', 0.9));
       };
       img.onerror = () => { URL.revokeObjectURL(url); reject(new Error('לא הצלחתי לפתוח את התמונה')); };
       img.src = url;
@@ -108,7 +108,7 @@
     }
     reading.classList.add('show');
     try{
-      const dataUrl = await resizeImage(file, 1600);
+      const dataUrl = await resizeImage(file, 2400);
       const res = await api({ action: 'analyze', image: dataUrl.split(',')[1], mediaType: 'image/jpeg' });
       const r = res.reading;
       if(r.readable){
@@ -119,6 +119,16 @@
         source = 'צילום';
         updateDisplay();
         setStatus('בדקו שהמספרים נכונים ולחצו "שמור מדידה"', 'ok');
+      }else if(r.systolic || r.diastolic || r.pulse){
+        // Partial read (e.g. glare over one number): fill what we have, leave the rest to type.
+        if(r.systolic) sys.value = r.systolic;
+        if(r.diastolic) dia.value = r.diastolic;
+        if(r.pulse) pulse.value = r.pulse;
+        source = 'צילום';
+        updateDisplay();
+        const missing = [!r.systolic && 'סיסטולי', !r.diastolic && 'דיאסטולי', !r.pulse && 'דופק'].filter(Boolean).join(', ');
+        setStatus('חלק מהמסך לא היה ברור (בוהק?) — השלימו ידנית: ' + missing, 'err');
+        (r.systolic ? (r.diastolic ? pulse : dia) : sys).focus();
       }else{
         setStatus('לא הצלחתי לקרוא את המסך בבירור — נסו לצלם שוב או הקלידו ידנית' + (r.reason ? ' (' + r.reason + ')' : ''), 'err');
       }

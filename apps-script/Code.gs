@@ -220,6 +220,8 @@ function analyzeImage_(base64, mediaType) {
   if (key) {
     var r = geminiRead_(key, base64, mediaType);
     if (r && r.readable) return r;
+    // A partial read (e.g. glare over SYS) is still worth returning — the user fills the gap.
+    if (r && (r.systolic || r.diastolic || r.pulse)) return r;
     reason = r ? 'Gemini לא הצליח לקרוא את הספרות' : 'Gemini: ' + geminiErrors_.join(' | ');
   }
   var o;
@@ -258,40 +260,54 @@ function geminiRead_(key, base64, mediaType) {
   var schema = {
     type: 'OBJECT',
     properties: {
-      readable: { type: 'BOOLEAN', description: 'true only if SYS and DIA are clearly legible' },
-      systolic: { type: 'INTEGER', description: 'SYS in mmHg (top, largest number); 0 if unreadable' },
-      diastolic: { type: 'INTEGER', description: 'DIA in mmHg (middle number); 0 if unreadable' },
+      readable: { type: 'BOOLEAN', description: 'false only if the SYS/DIA digits cannot be seen at all' },
+      systolic: { type: 'INTEGER', description: 'SYS in mmHg (top, largest number); 0 if hidden by glare or unreadable' },
+      diastolic: { type: 'INTEGER', description: 'DIA in mmHg (middle number); 0 if hidden by glare or unreadable' },
       pulse: { type: 'INTEGER', description: 'PULSE per minute (bottom, near a heart icon); 0 if not shown' },
       note: { type: 'STRING', description: 'short Hebrew note if an irregular-heartbeat/movement icon or error code is shown, else empty' },
     },
     required: ['readable', 'systolic', 'diastolic', 'pulse', 'note'],
   };
-  var prompt = 'This is a phone photo of a home blood-pressure monitor display with 7-segment digits: ' +
-    'SYS (systolic) on top, DIA (diastolic) in the middle, PULSE at the bottom. ' +
-    'Read the three numbers. Watch for 7-segment look-alikes (1/7, 5/6, 8/0/9) and glare. ' +
-    'Do not guess: if SYS or DIA is not clearly legible set readable=false. Return JSON only.';
-  var body = function (noThinking) {
+  var prompt = 'This is a phone photo of a home blood-pressure monitor. The device may be small in the frame, ' +
+    'tilted, or partly covered by glare - first locate its LCD screen. The screen shows 7-segment digits: ' +
+    'SYS (systolic, top, largest), DIA (diastolic, middle) and PULSE (bottom, next to a heart icon). ' +
+    'Ignore printed labels, stickers and the date/time/memory numbers. Watch for 7-segment look-alikes (1/7, 5/6, 8/0/9). ' +
+    'Give your best reading - the user will confirm it before saving. If one number is hidden (e.g. by a glare spot) ' +
+    'return 0 for that number only and still return the others. Set readable=false only if the SYS/DIA digits ' +
+    'cannot be seen at all. Return JSON only.';
+  // Richest request first (high-res image processing, no thinking); models that reject
+  // an option get the next, plainer variant.
+  var variants = [
+    { mediaResolution: 'MEDIA_RESOLUTION_HIGH', thinkingConfig: { thinkingBudget: 0 } },
+    { mediaResolution: 'MEDIA_RESOLUTION_HIGH' },
+    {},
+  ];
+  var body = function (extra) {
     var gen = { responseMimeType: 'application/json', responseSchema: schema, temperature: 0 };
-    if (noThinking) gen.thinkingConfig = { thinkingBudget: 0 };
+    for (var k in extra) gen[k] = extra[k];
     return JSON.stringify({
       contents: [{ role: 'user', parts: [{ text: prompt }, { inlineData: { mimeType: mediaType, data: base64 } }] }],
       generationConfig: gen,
     });
   };
+  var unreadable = null;
   for (var i = 0; i < GEMINI_MODELS.length; i++) {
     var url = 'https://generativelanguage.googleapis.com/v1beta/models/' + GEMINI_MODELS[i] + ':generateContent';
-    var call = function (noThinking) {
+    var call = function (extra) {
       return UrlFetchApp.fetch(url, {
         method: 'post',
         contentType: 'application/json',
         headers: { 'x-goog-api-key': key },
-        payload: body(noThinking),
+        payload: body(extra),
         muteHttpExceptions: true,
       });
     };
     try {
-      var res = call(true);
-      if (res.getResponseCode() === 400) res = call(false); // model won't take the thinking flag
+      var res;
+      for (var v = 0; v < variants.length; v++) {
+        res = call(variants[v]);
+        if (res.getResponseCode() !== 400) break; // 400 = option not supported by this model
+      }
       if (res.getResponseCode() !== 200) {
         var msg = '';
         try { msg = JSON.parse(res.getContentText()).error.message; } catch (e2) { /* not JSON */ }
@@ -299,18 +315,25 @@ function geminiRead_(key, base64, mediaType) {
         continue;
       }
       var data = JSON.parse(res.getContentText());
-      var text = data.candidates && data.candidates[0] && data.candidates[0].content &&
-        data.candidates[0].content.parts && data.candidates[0].content.parts[0].text;
+      var parts = (data.candidates && data.candidates[0] && data.candidates[0].content &&
+        data.candidates[0].content.parts) || [];
+      var text = parts.filter(function (p) { return p.text && !p.thought; }).map(function (p) { return p.text; }).join('');
       if (!text) continue;
       var r = JSON.parse(text);
-      if (r.readable && r.diastolic < r.systolic) r.category = classify_(r.systolic, r.diastolic);
-      else r.readable = false;
-      return r;
+      if (r.systolic > 0 && r.diastolic > 0 && r.diastolic < r.systolic) {
+        r.readable = true;
+        r.category = classify_(r.systolic, r.diastolic);
+        return r;
+      }
+      r.readable = false;
+      // Keep the most complete partial read, and let the next model have a go.
+      var filled = function (x) { return (x.systolic > 0) + (x.diastolic > 0) + (x.pulse > 0); };
+      if (!unreadable || filled(r) > filled(unreadable)) unreadable = r;
     } catch (e) {
       geminiErrors_.push(GEMINI_MODELS[i] + ': ' + (e && e.message ? e.message : e));
     }
   }
-  return null;
+  return unreadable;
 }
 
 // Uploads the photo to Drive as a Google Doc — Drive runs OCR on the way in —
