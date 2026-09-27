@@ -252,7 +252,7 @@ function testGemini() {
 // Same approach as the family-trip screenshot scanner: Gemini flash on the free
 // tier, JSON schema output, trying the "-latest" aliases first. Returns null if
 // no model answered, so the caller can fall back to plain OCR.
-var GEMINI_MODELS = ['gemini-flash-latest', 'gemini-flash-lite-latest', 'gemini-2.5-flash'];
+var GEMINI_MODELS = ['gemini-flash-latest', 'gemini-3.8-flash', 'gemini-flash-lite-latest'];
 
 function geminiRead_(key, base64, mediaType) {
   var schema = {
