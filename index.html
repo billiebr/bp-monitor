@@ -1,0 +1,114 @@
+<!doctype html>
+<html lang="he" dir="rtl">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <title>לחץ דם</title>
+  <meta name="theme-color" content="#dc2626" />
+  <meta name="description" content="צילום מד לחץ הדם ושמירה אוטומטית ל-Google Sheets" />
+  <link rel="manifest" href="manifest.webmanifest" />
+  <link rel="icon" href="icons/icon.svg" type="image/svg+xml" />
+  <link rel="apple-touch-icon" href="icons/apple-touch-icon.png" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-title" content="לחץ דם" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="default" />
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <header class="top">
+    <img src="icons/icon.svg" alt="" width="32" height="32" />
+    <h1>לחץ דם</h1>
+    <span id="pending" class="pending" hidden></span>
+  </header>
+
+  <main>
+    <!-- ================= מדידה ================= -->
+    <section id="view-measure" class="view active">
+      <div id="setup-hint" class="card hint" hidden>
+        עוד לא חיברנו את הגיליון. <a href="#" data-goto="settings">להגדרות ←</a>
+      </div>
+
+      <div id="capture" class="capture">
+        <label class="big-btn" for="photo">
+          <span class="big-icon">📷</span>
+          <span>צילום המכשיר</span>
+        </label>
+        <input id="photo" type="file" accept="image/*" capture="environment" hidden />
+        <button id="manual" class="link-btn" type="button">או הזנה ידנית</button>
+      </div>
+
+      <div id="preview-wrap" class="card" hidden>
+        <img id="preview" alt="צילום המכשיר" />
+        <div id="analyzing" class="analyzing" hidden><span class="spinner"></span> קוראת את הערכים…</div>
+      </div>
+
+      <form id="form" class="card" hidden autocomplete="off">
+        <div class="nums">
+          <label><span>סיסטולי</span><small>עליון</small>
+            <input id="sys" type="number" inputmode="numeric" min="50" max="300" required /></label>
+          <label><span>דיאסטולי</span><small>תחתון</small>
+            <input id="dia" type="number" inputmode="numeric" min="30" max="200" required /></label>
+          <label><span>דופק</span><small>לדקה</small>
+            <input id="pulse" type="number" inputmode="numeric" min="20" max="250" /></label>
+        </div>
+        <div id="category" class="category"></div>
+        <label class="row">מתי
+          <input id="taken" type="datetime-local" required /></label>
+        <label class="row">הערות
+          <input id="note" type="text" placeholder="למשל: אחרי תרופה, יד שמאל" /></label>
+        <div class="actions">
+          <button type="submit" class="primary" id="save">שמירה לגיליון</button>
+          <button type="button" class="secondary" id="cancel">ביטול</button>
+        </div>
+      </form>
+
+      <div id="last" class="card last" hidden></div>
+    </section>
+
+    <!-- ================= היסטוריה ================= -->
+    <section id="view-history" class="view">
+      <div class="card stats" id="stats"></div>
+      <div class="card"><h2>30 המדידות האחרונות</h2><div id="chart" class="chart"></div>
+        <div class="legend"><span class="l-sys">סיסטולי</span><span class="l-dia">דיאסטולי</span><span class="l-pulse">דופק</span></div>
+      </div>
+      <div class="card">
+        <div class="list-head"><h2>כל המדידות</h2>
+          <button id="refresh" class="link-btn" type="button">רענון ↻</button></div>
+        <a id="sheet-link" class="sheet-link" target="_blank" rel="noopener" hidden>פתיחת הגיליון ב-Google Sheets ↗</a>
+        <ul id="list" class="list"></ul>
+      </div>
+    </section>
+
+    <!-- ================= הגדרות ================= -->
+    <section id="view-settings" class="view">
+      <form id="settings" class="card">
+        <h2>חיבור לגיליון</h2>
+        <label class="row">כתובת ה-Web App (Apps Script)
+          <input id="api-url" type="url" dir="ltr" placeholder="https://script.google.com/macros/s/…/exec" required /></label>
+        <label class="row">קוד גישה
+          <input id="api-token" type="text" dir="ltr" required /></label>
+        <div class="actions">
+          <button type="submit" class="primary">שמירה ובדיקה</button>
+        </div>
+        <p id="settings-status" class="status"></p>
+      </form>
+      <div class="card help">
+        <h2>התקנה בטלפון</h2>
+        <p><b>אייפון (Safari):</b> כפתור השיתוף <span aria-hidden="true">⬆︎</span> ← "הוספה למסך הבית".</p>
+        <p><b>אנדרואיד (Chrome):</b> תפריט ⋮ ← "התקנת אפליקציה" / "הוספה למסך הבית".</p>
+        <button id="install" class="secondary" type="button" hidden>התקנת האפליקציה</button>
+      </div>
+    </section>
+  </main>
+
+  <nav class="tabs">
+    <button data-tab="measure" class="active" type="button"><span>➕</span>מדידה</button>
+    <button data-tab="history" type="button"><span>📈</span>היסטוריה</button>
+    <button data-tab="settings" type="button"><span>⚙️</span>הגדרות</button>
+  </nav>
+
+  <div id="toast" class="toast" role="status" aria-live="polite"></div>
+  <script src="app.js"></script>
+</body>
+</html>
