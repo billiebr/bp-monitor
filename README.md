@@ -49,7 +49,7 @@
 **Vercel (מומלץ — כבר יש לך חשבון):**
 1. <https://vercel.com/new> ← בוחרים את הריפו `bp-monitor` ← **Import**.
 2. **Framework Preset**: ‏**Other** (בלי פקודת build). ‏**Deploy**.
-3. מקבלים כתובת כמו `https://bp-monitor-xxxx.vercel.app`. כל שינוי שנדחף לריפו מתעדכן אוטומטית.
+3. הכתובת של האפליקציה: **<https://bp-monitor-six.vercel.app/>**. כל שינוי שנדחף לריפו מתעדכן שם אוטומטית.
 
 **Netlify Drop (בלי חשבון GitHub):** מורידים את הריפו כ-ZIP, פותחים אותו וגוררים את התיקייה לאתר <https://app.netlify.com/drop>.
 
@@ -64,7 +64,7 @@
 האייקון (לב אדום עם דופק) יופיע במסך הבית.
 
 > קיצור: אפשר לשלוח לעצמך קישור שמגדיר הכול בלחיצה אחת:
-> `https://<הכתובת-שלך>/#url=<Web app URL>&token=<קוד הגישה>`
+> `https://bp-monitor-six.vercel.app/#url=<Web app URL>&token=<קוד הגישה>`
 
 ---
 
