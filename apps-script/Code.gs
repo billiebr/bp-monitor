@@ -63,8 +63,13 @@ function getSpreadsheet_() {
   return SPREADSHEET_ID ? SpreadsheetApp.openById(SPREADSHEET_ID) : SpreadsheetApp.getActiveSpreadsheet();
 }
 
+var TIME_ZONE = 'Asia/Jerusalem';
+
 function getSheet_() {
   var ss = getSpreadsheet_();
+  // Dates are stored as exact moments; the sheet shows them in ITS time zone.
+  // Pin it to Israel so the hour in the sheet is the real local hour.
+  if (ss.getSpreadsheetTimeZone() !== TIME_ZONE) ss.setSpreadsheetTimeZone(TIME_ZONE);
   var sheet = ss.getSheetByName(SHEET_NAME);
   if (!sheet) {
     sheet = ss.insertSheet(SHEET_NAME, 0);
@@ -81,6 +86,9 @@ function getSheet_() {
     sheet.hideColumns(8);
     addCategoryColors_(sheet);
   }
+  // 24-hour date/time in column A (also fixes sheets created before this setting).
+  var a = sheet.getRange('A2:A');
+  if (a.getNumberFormat() !== 'dd/MM/yyyy HH:mm') a.setNumberFormat('dd/MM/yyyy HH:mm');
   return sheet;
 }
 

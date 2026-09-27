@@ -269,6 +269,38 @@
     api({ action: 'ping' }).then(r => setSheetUrl(r.sheetUrl)).catch(() => {});
   }
 
+
+  // ---- measurement date & time (always 24h, always local time) ----
+  const mDate = $('mDate'), mTime = $('mTime'), timeSrc = $('timeSrc');
+  const pad2 = n => String(n).padStart(2, '0');
+  function fmt24(d){ return pad2(d.getDate()) + '/' + pad2(d.getMonth() + 1) + '/' + d.getFullYear() + ' ' + pad2(d.getHours()) + ':' + pad2(d.getMinutes()); }
+  function setWhen(d, label){
+    mDate.value = d.getFullYear() + '-' + pad2(d.getMonth() + 1) + '-' + pad2(d.getDate());
+    mTime.value = pad2(d.getHours()) + ':' + pad2(d.getMinutes());
+    mTime.classList.remove('bad');
+    timeSrc.textContent = label || '';
+  }
+  function readWhen(){
+    const m = /^(\d{1,2})[:.]?(\d{2})$/.exec(mTime.value.trim());
+    const dm = /^(\d{4})-(\d{2})-(\d{2})$/.exec(mDate.value);
+    if(!m || !dm || +m[1] > 23 || +m[2] > 59) return null;
+    return new Date(+dm[1], +dm[2] - 1, +dm[3], +m[1], +m[2]);
+  }
+  // Type "1430" and get "14:30".
+  mTime.addEventListener('input', () => {
+    const digits = mTime.value.replace(/\D/g, '').slice(0, 4);
+    mTime.value = digits.length > 2 ? digits.slice(0, 2) + ':' + digits.slice(2) : digits;
+    mTime.classList.remove('bad');
+    timeSrc.textContent = '';
+  });
+  mDate.addEventListener('input', () => { timeSrc.textContent = ''; });
+  let whenTouched = false;
+  [mDate, mTime].forEach(el => el.addEventListener('input', () => { whenTouched = true; }));
+  setWhen(new Date());
+  // Keep "now" fresh while the app sits open, unless the user set a time.
+  setInterval(() => { if(!whenTouched && !photoTime) setWhen(new Date()); }, 30000);
+  let photoTime = null;
+
   let source = 'ידני';
 
   async function handlePhoto(input){
@@ -276,6 +308,14 @@
     if(!file) return;
     photoPreview.src = URL.createObjectURL(file);
     photoPreview.style.display = 'block';
+    // A photo from the gallery keeps the time it was taken — use that, not "now".
+    const t = file.lastModified ? new Date(file.lastModified) : null;
+    const ageMs = t ? Date.now() - t.getTime() : Infinity;
+    if(!whenTouched && ageMs > 2 * 60 * 1000 && ageMs < 14 * 24 * 3600 * 1000){
+      photoTime = t; setWhen(t, '(לפי שעת הצילום)');
+    }else if(!whenTouched){
+      photoTime = null; setWhen(new Date());
+    }
     setStatus('');
     if(!getUrl() || !getToken()){
       setStatus('כדי לקרוא את התמונה צריך להגדיר חיבור לגיליון (למטה). אפשר להקליד ידנית.', 'err');
@@ -379,10 +419,21 @@
       return;
     }
 
+    const now = readWhen();
+    if(!now){
+      mTime.classList.add('bad'); mTime.focus();
+      setStatus('נא לכתוב שעה בפורמט 24 שעות, למשל 08:15 או 21:40', 'err');
+      return;
+    }
+    if(now.getTime() > Date.now() + 5 * 60 * 1000){
+      mTime.classList.add('bad'); mTime.focus();
+      setStatus('מועד המדידה בעתיד — כדאי לבדוק את התאריך והשעה', 'err');
+      return;
+    }
+
     saveBtn.disabled = true;
     setStatus('שולח...');
 
-    const now = new Date();
     const item = {
       id: (crypto.randomUUID ? crypto.randomUUID() : String(Date.now()) + Math.random().toString(36).slice(2)),
       systolic: s,
@@ -398,7 +449,7 @@
     const hist = getHistory();
     hist.unshift({
       id: item.id, sys: s, dia: d, pulse: p, notes: item.note,
-      when: now.toLocaleDateString('he-IL') + ' ' + now.toLocaleTimeString('he-IL', {hour:'2-digit', minute:'2-digit'})
+      when: fmt24(now)
     });
     setHistory(hist);
 
@@ -406,6 +457,7 @@
     updateDisplay();
     photoPreview.style.display = 'none'; photoCamera.value = ''; photoGallery.value = '';
     source = 'ידני';
+    photoTime = null; whenTouched = false; setWhen(new Date());
 
     await flushQueue();
     if(queue.some(q => q.id === item.id)) await flushQueue();

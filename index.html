@@ -302,6 +302,14 @@
     padding:14px; margin-bottom:16px; cursor:pointer;
   }
   .rest-btn small{color:var(--muted); font-weight:400;}
+  input[type=date], .when-row input[type=text]{
+    background:var(--panel-2); border:1px solid var(--line); border-radius:10px;
+    padding:12px 14px; color:var(--ink); font-size:1.05rem; font-family:inherit; width:100%;
+    color-scheme:light dark;
+  }
+  .when-row input[type=text]{text-align:center; letter-spacing:.05em;}
+  .when-row input.bad{outline:2px solid var(--danger);}
+  .time-src{color:var(--accent); font-size:.75rem;}
   .top-actions{display:flex; gap:10px; margin-bottom:16px;}
   .top-actions .rest-btn{margin-bottom:0; flex:1;}
   .sheet-btn{
@@ -382,6 +390,17 @@
       <div class="field">
         <label for="pulse">דופק</label>
         <input type="number" id="pulse" inputmode="numeric" placeholder="70" min="20" max="250">
+      </div>
+    </div>
+
+    <div class="row when-row">
+      <div class="field">
+        <label for="mDate">תאריך המדידה</label>
+        <input type="date" id="mDate">
+      </div>
+      <div class="field">
+        <label for="mTime">שעה <span id="timeSrc" class="time-src"></span></label>
+        <input type="text" id="mTime" inputmode="numeric" placeholder="14:30" maxlength="5" autocomplete="off" dir="ltr">
       </div>
     </div>
 
