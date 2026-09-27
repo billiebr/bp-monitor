@@ -66,7 +66,10 @@
       headers: { 'Content-Type': 'text/plain;charset=utf-8' },
       body: JSON.stringify(Object.assign({ token }, payload))
     });
-    const data = await res.json();
+    const text = await res.text();
+    let data;
+    try { data = JSON.parse(text); }
+    catch(e){ throw new Error('הקוד שרץ בגיליון הוא לא הגרסה של האפליקציה הזו — צריך להדביק את Code.gs מחדש ולפרסם גרסה חדשה (New version)'); }
     if(!data.ok) throw new Error(data.error || 'שגיאה');
     return data;
   }

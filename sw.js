@@ -1,5 +1,5 @@
 // Offline shell for the blood-pressure app. Bump VERSION whenever a file changes.
-const VERSION = 'bp-v2';
+const VERSION = 'bp-v3';
 const SHELL = [
   './',
   'index.html',
