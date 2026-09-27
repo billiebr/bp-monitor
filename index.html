@@ -302,6 +302,13 @@
     padding:14px; margin-bottom:16px; cursor:pointer;
   }
   .rest-btn small{color:var(--muted); font-weight:400;}
+  .top-actions{display:flex; gap:10px; margin-bottom:16px;}
+  .top-actions .rest-btn{margin-bottom:0; flex:1;}
+  .sheet-btn{
+    flex:0 0 auto; display:flex; align-items:center; justify-content:center; gap:6px;
+    background:var(--panel); border:1px solid var(--line); border-radius:var(--radius);
+    color:var(--ink); font-size:1rem; font-weight:600; padding:14px 16px; text-decoration:none;
+  }
   .rest{
     position:fixed; inset:0; z-index:60; display:none;
     flex-direction:column; align-items:center; justify-content:center; gap:18px;
@@ -342,7 +349,10 @@
     <p class="sub">מדידה נרשמת ישירות לגיליון שלך</p>
   </header>
 
-  <button class="rest-btn" id="restBtn" type="button">⏱️ מנוחה לפני מדידה <small>5 דקות</small></button>
+  <div class="top-actions">
+    <button class="rest-btn" id="restBtn" type="button">⏱️ מנוחה לפני מדידה <small>5 דקות</small></button>
+    <a class="sheet-btn" id="sheetLink" href="#" target="_blank" rel="noopener" hidden>📊 גיליון</a>
+  </div>
 
   <div class="card">
     <div class="bp-display">

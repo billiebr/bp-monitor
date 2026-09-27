@@ -253,6 +253,22 @@
   // A rest that was running when the app was closed continues where it left off.
   if(Number(load(STORAGE_REST, 0)) > Date.now()) openRest();
 
+
+  // ---- link to the Google Sheet (the sheet script reports its own address) ----
+  const STORAGE_SHEET = 'bp_tracker_sheet_url';
+  const sheetLink = $('sheetLink');
+  function setSheetUrl(url){
+    if(!url || !/^https:\/\/docs\.google\.com\//.test(url)) return;
+    store(STORAGE_SHEET, url);
+    sheetLink.href = url;
+    sheetLink.hidden = false;
+  }
+  setSheetUrl(load(STORAGE_SHEET, ''));
+  // Already connected from before this feature? Ask the sheet for its address once.
+  if(!load(STORAGE_SHEET, '') && getUrl() && getToken()){
+    api({ action: 'ping' }).then(r => setSheetUrl(r.sheetUrl)).catch(() => {});
+  }
+
   let source = 'ידני';
 
   async function handlePhoto(input){
@@ -313,7 +329,8 @@
     try { localStorage.setItem(STORAGE_URL, v); localStorage.setItem(STORAGE_TOKEN, t); } catch(e){}
     setStatus('בודק חיבור...');
     try{
-      await api({ action: 'ping' });
+      const pong = await api({ action: 'ping' });
+      setSheetUrl(pong.sheetUrl);
       setStatus('מחובר לגיליון ✓', 'ok');
       configBlock.open = false;
       flushQueue();
