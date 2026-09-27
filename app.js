@@ -93,6 +93,46 @@
     });
   }
 
+
+  // ---- full-screen photo viewer with the three fields underneath ----
+  const viewer = $('viewer'), viewerImg = $('viewerImg'), viewerImgWrap = $('viewerImgWrap');
+  const vSys = $('vSys'), vDia = $('vDia'), vPulse = $('vPulse');
+  const pairs = [[vSys, sys], [vDia, dia], [vPulse, pulse]];
+
+  function openViewer(focusEmpty){
+    if(!photoPreview.src || photoPreview.style.display === 'none') return;
+    viewerImg.src = photoPreview.src;
+    viewerImgWrap.classList.remove('zoomed');
+    pairs.forEach(([v, main]) => { v.value = main.value; });
+    viewer.classList.add('open');
+    document.body.style.overflow = 'hidden';
+    if(focusEmpty){
+      const empty = pairs.find(([v]) => !v.value);
+      if(empty) empty[0].focus();
+    }
+  }
+  function closeViewer(){
+    viewer.classList.remove('open');
+    document.body.style.overflow = '';
+  }
+  pairs.forEach(([v, main]) => v.addEventListener('input', () => { main.value = v.value; updateDisplay(); }));
+  photoPreview.addEventListener('click', () => openViewer(false));
+  viewerImg.addEventListener('click', (e) => {
+    const zoomed = viewerImgWrap.classList.toggle('zoomed');
+    if(zoomed){
+      // keep the tapped spot under the finger
+      const r = viewerImg.getBoundingClientRect();
+      const fx = (e.clientX - r.left) / r.width, fy = (e.clientY - r.top) / r.height;
+      requestAnimationFrame(() => {
+        viewerImgWrap.scrollLeft = fx * viewerImg.clientWidth - viewerImgWrap.clientWidth / 2;
+        viewerImgWrap.scrollTop = fy * viewerImg.clientHeight - viewerImgWrap.clientHeight / 2;
+      });
+    }
+  });
+  $('viewerClose').addEventListener('click', closeViewer);
+  $('viewerDone').addEventListener('click', closeViewer);
+  document.addEventListener('keydown', (e) => { if(e.key === 'Escape') closeViewer(); });
+
   let source = 'ידני';
 
   async function handlePhoto(input){
@@ -118,7 +158,7 @@
         if(r.note && !notes.value.trim()) notes.value = r.note;
         source = 'צילום';
         updateDisplay();
-        setStatus('בדקו שהמספרים נכונים ולחצו "שמור מדידה"', 'ok');
+        setStatus('בדקו שהמספרים נכונים ולחצו "שמור מדידה" (הקישו על התמונה להגדלה)', 'ok');
       }else if(r.systolic || r.diastolic || r.pulse){
         // Partial read (e.g. glare over one number): fill what we have, leave the rest to type.
         if(r.systolic) sys.value = r.systolic;
@@ -128,9 +168,10 @@
         updateDisplay();
         const missing = [!r.systolic && 'סיסטולי', !r.diastolic && 'דיאסטולי', !r.pulse && 'דופק'].filter(Boolean).join(', ');
         setStatus('חלק מהמסך לא היה ברור (בוהק?) — השלימו ידנית: ' + missing, 'err');
-        (r.systolic ? (r.diastolic ? pulse : dia) : sys).focus();
+        openViewer(true);
       }else{
         setStatus('לא הצלחתי לקרוא את המסך בבירור — נסו לצלם שוב או הקלידו ידנית' + (r.reason ? ' (' + r.reason + ')' : ''), 'err');
+        openViewer(true);
       }
     }catch(err){
       setStatus((err && err.message ? err.message : 'הקריאה נכשלה') + ' — אפשר להקליד ידנית', 'err');
