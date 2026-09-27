@@ -1,17 +1,13 @@
 /**
- * מד לחץ דם — צד השרת (Google Apps Script, מחובר לגיליון Google Sheets).
+ * מד לחץ דם — צד השרת (Google Apps Script).
  *
  * מה הקוד עושה:
- *   • analyze — מקבל צילום של מסך מכשיר לחץ הדם, שולח אותו ל-Claude
- *               ומחזיר סיסטולי / דיאסטולי / דופק.
- *   • save    — מוסיף שורה לגיליון "מדידות" (כולל מניעת כפילויות).
- *   • list    — מחזיר את המדידות האחרונות לאפליקציה (היסטוריה וגרף).
+ *   • analyze — מקבל צילום של מסך מכשיר לחץ הדם, מזהה את הספרות בעזרת זיהוי הטקסט (OCR)
+ *               של Google Drive בחשבון שלך — בלי מפתחות ובלי עלות — ומחזיר סיסטולי / דיאסטולי / דופק.
+ *   • save    — מוסיף שורה ללשונית "מדידות" בגיליון (כולל מניעת כפילויות).
+ *   • list    — מחזיר את המדידות האחרונות.
  *
- * התקנה — ראו bp-monitor/README.md. בקצרה:
- *   1. בגיליון: הרחבות ← Apps Script, מדביקים את הקובץ הזה ושומרים.
- *   2. מריצים את הפונקציה setup פעם אחת (ומאשרים הרשאות).
- *   3. בגיליון: תפריט "לחץ דם" ← "הגדרת מפתח Claude".
- *   4. פריסה ← פריסה חדשה ← אפליקציית אינטרנט, "מי יכול לגשת: כולם".
+ * התקנה: מדביקים את הקובץ, מריצים setup פעם אחת (מאשרים הרשאות), ומפרסמים גרסה חדשה.
  */
 
 // מזהה הגיליון (החלק שבכתובת שלו בין /d/ ל-/edit). נדרש כשהסקריפט לא נפתח מתוך הגיליון
@@ -20,35 +16,23 @@ var SPREADSHEET_ID = '1bsXluNMZu4tYzahqACGpnlSbUcfpP6wZspXc8t5T_gA';
 
 var SHEET_NAME = 'מדידות';
 var HEADERS = ['תאריך ושעה', 'סיסטולי', 'דיאסטולי', 'דופק', 'סיווג', 'הערות', 'מקור', 'מזהה'];
-var CLAUDE_MODEL = 'claude-opus-5';
 
 // ---------------------------------------------------------------- setup / menu
-
-// אפשר להדביק כאן את מפתח Claude, להריץ setup פעם אחת, ואז למחוק אותו מכאן (הוא נשמר בהגדרות הסקריפט).
-var CLAUDE_KEY_TO_SAVE = '';
 
 function setup() {
   var sheet = getSheet_();
   var props = PropertiesService.getScriptProperties();
-  if (CLAUDE_KEY_TO_SAVE && CLAUDE_KEY_TO_SAVE.indexOf('sk-ant-') === 0) {
-    props.setProperty('ANTHROPIC_API_KEY', CLAUDE_KEY_TO_SAVE.trim());
-    Logger.log('מפתח Claude נשמר ✔ — אפשר למחוק אותו עכשיו מהשורה CLAUDE_KEY_TO_SAVE.');
-  }
   if (!props.getProperty('APP_TOKEN')) {
     props.setProperty('APP_TOKEN', Utilities.getUuid().replace(/-/g, '').slice(0, 16));
   }
   buildChart_(sheet);
   Logger.log('הגיליון מוכן. קוד הגישה לאפליקציה: ' + props.getProperty('APP_TOKEN'));
-  if (!props.getProperty('ANTHROPIC_API_KEY')) {
-    Logger.log('חסר מפתח Claude: הדביקו אותו בשורה CLAUDE_KEY_TO_SAVE והריצו setup שוב.');
-  }
 }
 
 function onOpen() {
   SpreadsheetApp.getUi()
     .createMenu('לחץ דם')
     .addItem('הצגת קוד גישה לאפליקציה', 'showToken')
-    .addItem('הגדרת מפתח Claude', 'promptApiKey')
     .addItem('בניית גרף מחדש', 'rebuildChart')
     .addToUi();
 }
@@ -56,19 +40,6 @@ function onOpen() {
 function showToken() {
   var token = PropertiesService.getScriptProperties().getProperty('APP_TOKEN');
   SpreadsheetApp.getUi().alert(token ? 'קוד הגישה: ' + token : 'הריצו קודם את setup מתוך עורך הסקריפט.');
-}
-
-function promptApiKey() {
-  var ui = SpreadsheetApp.getUi();
-  var res = ui.prompt('מפתח Claude', 'הדביקו את מפתח ה-API (מתחיל ב-sk-ant-):', ui.ButtonSet.OK_CANCEL);
-  if (res.getSelectedButton() !== ui.Button.OK) return;
-  var key = res.getResponseText().trim();
-  if (key.indexOf('sk-ant-') !== 0) {
-    ui.alert('המפתח לא נראה תקין — הוא אמור להתחיל ב-sk-ant-');
-    return;
-  }
-  PropertiesService.getScriptProperties().setProperty('ANTHROPIC_API_KEY', key);
-  ui.alert('המפתח נשמר ✔');
 }
 
 function rebuildChart() {
@@ -228,67 +199,65 @@ function listReadings_(limit) {
   return { ok: true, readings: readings, sheetUrl: getSpreadsheet_().getUrl() };
 }
 
-// ---------------------------------------------------------------- Claude vision
-
-var READING_SCHEMA = {
-  type: 'object',
-  properties: {
-    readable: { type: 'boolean', description: 'true only if systolic and diastolic are clearly legible' },
-    systolic: { type: 'integer', description: 'SYS value in mmHg, 0 if not readable' },
-    diastolic: { type: 'integer', description: 'DIA value in mmHg, 0 if not readable' },
-    pulse: { type: 'integer', description: 'PULSE per minute, 0 if not shown' },
-    device_datetime: { type: 'string', description: 'date/time shown on the display as ISO 8601, or empty string' },
-    note: { type: 'string', description: 'short Hebrew note: e.g. irregular heartbeat icon, error code, or why unreadable; empty if nothing' },
-  },
-  required: ['readable', 'systolic', 'diastolic', 'pulse', 'device_datetime', 'note'],
-  additionalProperties: false,
-};
+// ---------------------------------------------------------------- photo reading (Google Drive OCR)
 
 function analyzeImage_(base64, mediaType) {
-  var apiKey = PropertiesService.getScriptProperties().getProperty('ANTHROPIC_API_KEY');
-  if (!apiKey) throw new Error('לא הוגדר מפתח Claude בגיליון (תפריט "לחץ דם")');
   if (!base64) throw new Error('לא התקבלה תמונה');
+  var text = ocr_(Utilities.base64Decode(base64), mediaType);
+  return parseReading_(text);
+}
 
-  var payload = {
-    model: CLAUDE_MODEL,
-    max_tokens: 4000,
-    fallbacks: 'default',
-    output_config: { effort: 'low', format: { type: 'json_schema', schema: READING_SCHEMA } },
-    system:
-      'You read home blood-pressure monitor displays from phone photos. ' +
-      'These screens usually use 7-segment digits: SYS (systolic, top, largest), DIA (diastolic, middle) and PULSE (bottom, often next to a heart icon). ' +
-      'Watch for 7-segment look-alikes (1/7, 5/6, 8/0/9) and glare. Never guess: if SYS or DIA is not clearly legible, set readable=false. ' +
-      'Include a short Hebrew note if an irregular-heartbeat or movement icon, an error code, or low battery is shown.',
-    messages: [
-      {
-        role: 'user',
-        content: [
-          { type: 'image', source: { type: 'base64', media_type: mediaType, data: base64 } },
-          { type: 'text', text: 'Read the blood pressure measurement on this device.' },
-        ],
-      },
-    ],
-  };
+// Uploads the photo to Drive as a Google Doc — Drive runs OCR on the way in —
+// reads the recognised text, then moves the temporary file to the trash.
+function ocr_(bytes, mediaType) {
+  var boundary = 'bpBoundary' + Date.now();
+  var meta = JSON.stringify({ name: 'bp-ocr-temp', mimeType: 'application/vnd.google-apps.document' });
+  var head = '--' + boundary + '\r\nContent-Type: application/json; charset=UTF-8\r\n\r\n' + meta + '\r\n' +
+    '--' + boundary + '\r\nContent-Type: ' + mediaType + '\r\n\r\n';
+  var tail = '\r\n--' + boundary + '--';
+  var body = Utilities.newBlob(head).getBytes().concat(bytes, Utilities.newBlob(tail).getBytes());
 
-  var res = UrlFetchApp.fetch('https://api.anthropic.com/v1/messages', {
+  var res = UrlFetchApp.fetch('https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart&ocrLanguage=en', {
     method: 'post',
-    contentType: 'application/json',
-    headers: {
-      'x-api-key': apiKey,
-      'anthropic-version': '2023-06-01',
-      'anthropic-beta': 'server-side-fallback-2026-07-01',
-    },
-    payload: JSON.stringify(payload),
+    contentType: 'multipart/related; boundary=' + boundary,
+    payload: body,
+    headers: { Authorization: 'Bearer ' + ScriptApp.getOAuthToken() },
     muteHttpExceptions: true,
   });
-
-  var data = JSON.parse(res.getContentText());
   if (res.getResponseCode() !== 200) {
-    throw new Error('שגיאה מ-Claude: ' + (data.error && data.error.message ? data.error.message : res.getResponseCode()));
+    throw new Error('זיהוי התמונה נכשל (' + res.getResponseCode() + ')');
   }
-  if (data.stop_reason === 'refusal') throw new Error('Claude לא הצליח לעבד את התמונה — נסו שוב או הזינו ידנית');
-  var text = (data.content || []).filter(function (b) { return b.type === 'text'; }).map(function (b) { return b.text; }).join('');
-  var reading = JSON.parse(text);
-  if (reading.readable) reading.category = classify_(reading.systolic, reading.diastolic);
-  return reading;
+  var id = JSON.parse(res.getContentText()).id;
+  try {
+    return DocumentApp.openById(id).getBody().getText();
+  } finally {
+    DriveApp.getFileById(id).setTrashed(true);
+  }
+}
+
+// Picks SYS / DIA / PULSE out of the OCR text. Displays list them top to bottom,
+// so we take the first plausible trio in reading order; dates and times are skipped.
+function parseReading_(text) {
+  var cleaned = String(text || '')
+    .replace(/(\d{1,2})\s*[:.]\s*(\d{2})/g, ' ')          // clock 10:25
+    .replace(/\d{1,4}\s*[\/-]\s*\d{1,2}(\s*[\/-]\s*\d{1,4})?/g, ' ') // dates 27/9
+    .replace(/[Oo]/g, '0').replace(/[lI|]/g, '1').replace(/[Ss]/g, '5').replace(/B/g, '8');
+  var nums = (cleaned.match(/\d{2,3}/g) || []).map(Number);
+
+  for (var i = 0; i < nums.length - 1; i++) {
+    var sys = nums[i], dia = nums[i + 1];
+    if (sys >= 70 && sys <= 260 && dia >= 35 && dia <= 160 && dia < sys) {
+      var pulse = nums[i + 2];
+      return {
+        readable: true,
+        systolic: sys,
+        diastolic: dia,
+        pulse: pulse >= 30 && pulse <= 220 ? pulse : 0,
+        device_datetime: '',
+        note: '',
+        category: classify_(sys, dia),
+      };
+    }
+  }
+  return { readable: false, systolic: 0, diastolic: 0, pulse: 0, device_datetime: '', note: '', rawText: String(text || '').slice(0, 200) };
 }
