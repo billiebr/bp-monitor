@@ -1,114 +1,327 @@
-<!doctype html>
+<!DOCTYPE html>
 <html lang="he" dir="rtl">
 <head>
-  <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
-  <title>לחץ דם</title>
-  <meta name="theme-color" content="#dc2626" />
-  <meta name="description" content="צילום מד לחץ הדם ושמירה אוטומטית ל-Google Sheets" />
-  <link rel="manifest" href="manifest.webmanifest" />
-  <link rel="icon" href="icons/icon.svg" type="image/svg+xml" />
-  <link rel="apple-touch-icon" href="icons/apple-touch-icon.png" />
-  <meta name="apple-mobile-web-app-capable" content="yes" />
-  <meta name="mobile-web-app-capable" content="yes" />
-  <meta name="apple-mobile-web-app-title" content="לחץ דם" />
-  <meta name="apple-mobile-web-app-status-bar-style" content="default" />
-  <link rel="stylesheet" href="styles.css" />
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>מעקב לחץ דם</title>
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" type="image/png" sizes="192x192" href="icons/icon-192.png">
+<link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="לחץ דם">
+<meta name="theme-color" content="#0f1b1e">
+<style>
+  :root{
+    --bg:#0f1b1e;
+    --panel:#15272b;
+    --panel-2:#1c333750;
+    --ink:#eef4f3;
+    --muted:#93a8a6;
+    --line:#28403f;
+    --accent:#4fb3a9;
+    --accent-ink:#08201d;
+    --danger:#e07856;
+    --ok:#6ec59a;
+    --radius:14px;
+  }
+  @media (prefers-color-scheme: light){
+    :root:not([data-theme="dark"]){
+      --bg:#f4f7f6;
+      --panel:#ffffff;
+      --panel-2:#eef3f2;
+      --ink:#152423;
+      --muted:#5c716f;
+      --line:#dbe6e4;
+      --accent:#2c8377;
+      --accent-ink:#ffffff;
+    }
+  }
+  *{box-sizing:border-box;}
+  html,body{height:100%;}
+  body{
+    margin:0;
+    background:var(--bg);
+    color:var(--ink);
+    font-family: "Segoe UI", system-ui, -apple-system, "Arial Hebrew", Arial, sans-serif;
+    padding-top:env(safe-area-inset-top,0px);
+    padding-bottom:env(safe-area-inset-bottom,0px);
+  }
+  .wrap{
+    max-width:480px;
+    margin:0 auto;
+    padding:24px 18px 48px;
+  }
+  header{
+    margin-bottom:20px;
+  }
+  h1{
+    font-size:1.5rem;
+    margin:0 0 4px;
+    letter-spacing:-0.01em;
+  }
+  .sub{
+    color:var(--muted);
+    font-size:0.92rem;
+    margin:0;
+  }
+  .card{
+    background:var(--panel);
+    border:1px solid var(--line);
+    border-radius:var(--radius);
+    padding:18px;
+    margin-bottom:16px;
+  }
+  .row{
+    display:flex;
+    gap:12px;
+  }
+  .field{
+    flex:1;
+    display:flex;
+    flex-direction:column;
+    gap:6px;
+    margin-bottom:14px;
+  }
+  label{
+    font-size:0.85rem;
+    color:var(--muted);
+  }
+  input[type=number], textarea{
+    background:var(--panel-2);
+    border:1px solid var(--line);
+    border-radius:10px;
+    padding:12px 14px;
+    color:var(--ink);
+    font-size:1.15rem;
+    font-family:inherit;
+    width:100%;
+  }
+  textarea{
+    font-size:0.95rem;
+    min-height:60px;
+    resize:vertical;
+  }
+  input:focus, textarea:focus, button:focus-visible{
+    outline:2px solid var(--accent);
+    outline-offset:1px;
+  }
+  .bp-display{
+    text-align:center;
+    padding:6px 0 18px;
+  }
+  .bp-display .nums{
+    font-size:2.6rem;
+    font-weight:600;
+    line-height:1;
+    letter-spacing:-0.02em;
+  }
+  .bp-display .nums .slash{
+    color:var(--muted);
+    margin:0 6px;
+  }
+  .bp-display .unit{
+    color:var(--muted);
+    font-size:0.85rem;
+    margin-top:4px;
+  }
+  .photo-row{
+    display:flex;
+    gap:10px;
+    align-items:center;
+    flex-wrap:wrap;
+    margin-bottom:6px;
+  }
+  .photo-btn{
+    flex:0 0 auto;
+    background:var(--panel-2);
+    border:1px dashed var(--line);
+    border-radius:10px;
+    padding:10px 14px;
+    color:var(--ink);
+    font-size:0.9rem;
+    cursor:pointer;
+  }
+  .photo-preview{
+    height:52px;
+    width:52px;
+    border-radius:8px;
+    object-fit:cover;
+    border:1px solid var(--line);
+    display:none;
+  }
+  .photo-hint{
+    color:var(--muted);
+    font-size:0.8rem;
+  }
+  button.primary{
+    width:100%;
+    padding:14px;
+    background:var(--accent);
+    color:var(--accent-ink);
+    border:none;
+    border-radius:10px;
+    font-size:1.05rem;
+    font-weight:600;
+    cursor:pointer;
+  }
+  button.primary:disabled{
+    opacity:0.6;
+    cursor:default;
+  }
+  .status{
+    text-align:center;
+    font-size:0.9rem;
+    margin-top:10px;
+    min-height:1.2em;
+  }
+  .status.ok{color:var(--ok);}
+  .status.err{color:var(--danger);}
+  .history{
+    display:flex;
+    flex-direction:column;
+    gap:8px;
+  }
+  .history h2{
+    font-size:1rem;
+    margin:0 0 10px;
+    color:var(--muted);
+    font-weight:600;
+  }
+  .entry{
+    display:flex;
+    justify-content:space-between;
+    align-items:center;
+    padding:10px 0;
+    border-bottom:1px solid var(--line);
+    font-size:0.95rem;
+  }
+  .entry:last-child{border-bottom:none;}
+  .entry .when{color:var(--muted); font-size:0.82rem;}
+  .entry .val{font-weight:600;}
+  .entry .note{color:var(--muted); font-size:0.82rem; margin-top:2px;}
+  .empty{
+    color:var(--muted);
+    font-size:0.9rem;
+    text-align:center;
+    padding:12px 0;
+  }
+  .config{
+    font-size:0.85rem;
+  }
+  .config summary{
+    cursor:pointer;
+    color:var(--muted);
+  }
+  .config input[type=text]{
+    background:var(--panel-2);
+    border:1px solid var(--line);
+    border-radius:8px;
+    padding:9px 12px;
+    color:var(--ink);
+    width:100%;
+    font-size:0.85rem;
+    margin-top:10px;
+    direction:ltr;
+    text-align:left;
+  }
+  .config .save-url{
+    margin-top:8px;
+    padding:8px 12px;
+    background:var(--panel-2);
+    border:1px solid var(--line);
+    border-radius:8px;
+    color:var(--ink);
+    font-size:0.82rem;
+    cursor:pointer;
+  }
+  .row.three{gap:10px;}
+  .row.three .field{justify-content:flex-end;}
+  .row.three .field input{padding:12px 10px;}
+  .reading{
+    display:none;
+    align-items:center;
+    gap:8px;
+    color:var(--muted);
+    font-size:0.85rem;
+    margin:6px 0 4px;
+  }
+  .reading.show{display:flex;}
+  .spinner{
+    width:16px; height:16px; border-radius:50%;
+    border:2px solid var(--line); border-top-color:var(--accent);
+    animation:spin .8s linear infinite;
+  }
+  @keyframes spin{to{transform:rotate(360deg);}}
+  .photo-hint{margin-bottom:14px;}
+  .pending{color:var(--danger); font-size:0.8rem; text-align:center; margin-top:6px;}
+</style>
 </head>
 <body>
-  <header class="top">
-    <img src="icons/icon.svg" alt="" width="32" height="32" />
-    <h1>לחץ דם</h1>
-    <span id="pending" class="pending" hidden></span>
+<div class="wrap">
+  <header>
+    <h1>מעקב לחץ דם</h1>
+    <p class="sub">מדידה נרשמת ישירות לגיליון שלך</p>
   </header>
 
-  <main>
-    <!-- ================= מדידה ================= -->
-    <section id="view-measure" class="view active">
-      <div id="setup-hint" class="card hint" hidden>
-        עוד לא חיברנו את הגיליון. <a href="#" data-goto="settings">להגדרות ←</a>
+  <div class="card">
+    <div class="bp-display">
+      <div class="nums"><span id="sysDisp">--</span><span class="slash">/</span><span id="diaDisp">--</span></div>
+      <div class="unit">מ"מ כספית</div>
+    </div>
+
+    <div class="photo-row">
+      <label class="photo-btn" for="photoCamera">📷 צלם מכשיר</label>
+      <input type="file" id="photoCamera" accept="image/*" capture="environment" style="display:none;">
+      <label class="photo-btn" for="photoGallery">🖼️ העלה תמונה</label>
+      <input type="file" id="photoGallery" accept="image/*" style="display:none;">
+      <img id="photoPreview" class="photo-preview" alt="תצוגה מקדימה">
+    </div>
+    <div class="reading" id="reading"><span class="spinner"></span>קורא את הערכים מהתמונה...</div>
+    <div class="photo-hint" id="photoHint">המספרים ימולאו מהתמונה — או הקלידו ידנית</div>
+
+    <div class="row three">
+      <div class="field">
+        <label for="sys">סיסטולי (עליון)</label>
+        <input type="number" id="sys" inputmode="numeric" placeholder="120" min="40" max="260">
       </div>
-
-      <div id="capture" class="capture">
-        <label class="big-btn" for="photo">
-          <span class="big-icon">📷</span>
-          <span>צילום המכשיר</span>
-        </label>
-        <input id="photo" type="file" accept="image/*" capture="environment" hidden />
-        <button id="manual" class="link-btn" type="button">או הזנה ידנית</button>
+      <div class="field">
+        <label for="dia">דיאסטולי (תחתון)</label>
+        <input type="number" id="dia" inputmode="numeric" placeholder="80" min="30" max="180">
       </div>
-
-      <div id="preview-wrap" class="card" hidden>
-        <img id="preview" alt="צילום המכשיר" />
-        <div id="analyzing" class="analyzing" hidden><span class="spinner"></span> קוראת את הערכים…</div>
+      <div class="field">
+        <label for="pulse">דופק</label>
+        <input type="number" id="pulse" inputmode="numeric" placeholder="70" min="20" max="250">
       </div>
+    </div>
 
-      <form id="form" class="card" hidden autocomplete="off">
-        <div class="nums">
-          <label><span>סיסטולי</span><small>עליון</small>
-            <input id="sys" type="number" inputmode="numeric" min="50" max="300" required /></label>
-          <label><span>דיאסטולי</span><small>תחתון</small>
-            <input id="dia" type="number" inputmode="numeric" min="30" max="200" required /></label>
-          <label><span>דופק</span><small>לדקה</small>
-            <input id="pulse" type="number" inputmode="numeric" min="20" max="250" /></label>
-        </div>
-        <div id="category" class="category"></div>
-        <label class="row">מתי
-          <input id="taken" type="datetime-local" required /></label>
-        <label class="row">הערות
-          <input id="note" type="text" placeholder="למשל: אחרי תרופה, יד שמאל" /></label>
-        <div class="actions">
-          <button type="submit" class="primary" id="save">שמירה לגיליון</button>
-          <button type="button" class="secondary" id="cancel">ביטול</button>
-        </div>
-      </form>
+    <div class="field">
+      <label for="notes">הערות (לא חובה)</label>
+      <textarea id="notes" placeholder="למשל: אחרי אימון, לפני תרופה..."></textarea>
+    </div>
 
-      <div id="last" class="card last" hidden></div>
-    </section>
+    <button class="primary" id="saveBtn">שמור מדידה</button>
+    <div class="status" id="status"></div>
+    <div class="pending" id="pending"></div>
+  </div>
 
-    <!-- ================= היסטוריה ================= -->
-    <section id="view-history" class="view">
-      <div class="card stats" id="stats"></div>
-      <div class="card"><h2>30 המדידות האחרונות</h2><div id="chart" class="chart"></div>
-        <div class="legend"><span class="l-sys">סיסטולי</span><span class="l-dia">דיאסטולי</span><span class="l-pulse">דופק</span></div>
-      </div>
-      <div class="card">
-        <div class="list-head"><h2>כל המדידות</h2>
-          <button id="refresh" class="link-btn" type="button">רענון ↻</button></div>
-        <a id="sheet-link" class="sheet-link" target="_blank" rel="noopener" hidden>פתיחת הגיליון ב-Google Sheets ↗</a>
-        <ul id="list" class="list"></ul>
-      </div>
-    </section>
+  <div class="card history">
+    <h2>מדידות אחרונות (במכשיר זה)</h2>
+    <div id="historyList"><div class="empty">אין עדיין מדידות</div></div>
+  </div>
 
-    <!-- ================= הגדרות ================= -->
-    <section id="view-settings" class="view">
-      <form id="settings" class="card">
-        <h2>חיבור לגיליון</h2>
-        <label class="row">כתובת ה-Web App (Apps Script)
-          <input id="api-url" type="url" dir="ltr" placeholder="https://script.google.com/macros/s/…/exec" required /></label>
-        <label class="row">קוד גישה
-          <input id="api-token" type="text" dir="ltr" required /></label>
-        <div class="actions">
-          <button type="submit" class="primary">שמירה ובדיקה</button>
-        </div>
-        <p id="settings-status" class="status"></p>
-      </form>
-      <div class="card help">
-        <h2>התקנה בטלפון</h2>
-        <p><b>אייפון (Safari):</b> כפתור השיתוף <span aria-hidden="true">⬆︎</span> ← "הוספה למסך הבית".</p>
-        <p><b>אנדרואיד (Chrome):</b> תפריט ⋮ ← "התקנת אפליקציה" / "הוספה למסך הבית".</p>
-        <button id="install" class="secondary" type="button" hidden>התקנת האפליקציה</button>
-      </div>
-    </section>
-  </main>
+  <div class="card">
+    <details class="config" id="configBlock">
+      <summary>הגדרת חיבור לגיליון</summary>
+      <div class="photo-hint">הדבק כאן את כתובת ה-Web App שקיבלת מ-Google Apps Script</div>
+      <input type="text" id="scriptUrl" placeholder="https://script.google.com/macros/s/.../exec">
+      <input type="text" id="scriptToken" placeholder="קוד גישה (מופיע בגיליון: תפריט לחץ דם)">
+      <div class="save-url" id="saveUrlBtn">שמור חיבור</div>
+    </details>
+  </div>
+</div>
 
-  <nav class="tabs">
-    <button data-tab="measure" class="active" type="button"><span>➕</span>מדידה</button>
-    <button data-tab="history" type="button"><span>📈</span>היסטוריה</button>
-    <button data-tab="settings" type="button"><span>⚙️</span>הגדרות</button>
-  </nav>
-
-  <div id="toast" class="toast" role="status" aria-live="polite"></div>
-  <script src="app.js"></script>
+<script src="app.js"></script>
 </body>
 </html>
