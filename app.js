@@ -120,7 +120,7 @@
         updateDisplay();
         setStatus('בדקו שהמספרים נכונים ולחצו "שמור מדידה"', 'ok');
       }else{
-        setStatus('לא הצלחתי לקרוא את המסך בבירור — נסו לצלם שוב או הקלידו ידנית', 'err');
+        setStatus('לא הצלחתי לקרוא את המסך בבירור — נסו לצלם שוב או הקלידו ידנית' + (r.reason ? ' (' + r.reason + ')' : ''), 'err');
       }
     }catch(err){
       setStatus((err && err.message ? err.message : 'הקריאה נכשלה') + ' — אפשר להקליד ידנית', 'err');

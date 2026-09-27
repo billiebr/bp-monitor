@@ -216,11 +216,37 @@ function listReadings_(limit) {
 function analyzeImage_(base64, mediaType) {
   if (!base64) throw new Error('לא התקבלה תמונה');
   var key = PropertiesService.getScriptProperties().getProperty('GEMINI_API_KEY');
+  var reason = key ? '' : 'אין מפתח Gemini';
   if (key) {
     var r = geminiRead_(key, base64, mediaType);
-    if (r) return r;
+    if (r && r.readable) return r;
+    reason = r ? 'Gemini לא הצליח לקרוא את הספרות' : 'Gemini: ' + geminiErrors_.join(' | ');
   }
-  return parseReading_(ocr_(Utilities.base64Decode(base64), mediaType));
+  var o;
+  try {
+    o = parseReading_(ocr_(Utilities.base64Decode(base64), mediaType));
+  } catch (e) {
+    o = { readable: false, systolic: 0, diastolic: 0, pulse: 0, note: '' };
+    reason += ' · OCR: ' + (e && e.message ? e.message : e);
+  }
+  if (!o.readable) o.reason = reason;
+  return o;
+}
+
+var geminiErrors_ = [];
+
+// Run this from the editor (choose testGemini ▶ Run) to check the Gemini key.
+function testGemini() {
+  var key = PropertiesService.getScriptProperties().getProperty('GEMINI_API_KEY');
+  if (!key) { Logger.log('אין מפתח Gemini שמור — הדביקו אותו ב-GEMINI_KEY_TO_SAVE והריצו setup.'); return; }
+  GEMINI_MODELS.forEach(function (m) {
+    var res = UrlFetchApp.fetch('https://generativelanguage.googleapis.com/v1beta/models/' + m + ':generateContent', {
+      method: 'post', contentType: 'application/json', headers: { 'x-goog-api-key': key },
+      payload: JSON.stringify({ contents: [{ role: 'user', parts: [{ text: 'Reply with the word OK' }] }] }),
+      muteHttpExceptions: true,
+    });
+    Logger.log(m + ' → ' + res.getResponseCode() + ' ' + res.getContentText().slice(0, 300));
+  });
 }
 
 // Same approach as the family-trip screenshot scanner: Gemini flash on the free
@@ -266,7 +292,12 @@ function geminiRead_(key, base64, mediaType) {
     try {
       var res = call(true);
       if (res.getResponseCode() === 400) res = call(false); // model won't take the thinking flag
-      if (res.getResponseCode() !== 200) continue;
+      if (res.getResponseCode() !== 200) {
+        var msg = '';
+        try { msg = JSON.parse(res.getContentText()).error.message; } catch (e2) { /* not JSON */ }
+        geminiErrors_.push(GEMINI_MODELS[i] + ' ' + res.getResponseCode() + (msg ? ': ' + msg.slice(0, 120) : ''));
+        continue;
+      }
       var data = JSON.parse(res.getContentText());
       var text = data.candidates && data.candidates[0] && data.candidates[0].content &&
         data.candidates[0].content.parts && data.candidates[0].content.parts[0].text;
@@ -276,7 +307,7 @@ function geminiRead_(key, base64, mediaType) {
       else r.readable = false;
       return r;
     } catch (e) {
-      // try the next model
+      geminiErrors_.push(GEMINI_MODELS[i] + ': ' + (e && e.message ? e.message : e));
     }
   }
   return null;
