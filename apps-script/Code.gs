@@ -2,8 +2,9 @@
  * מד לחץ דם — צד השרת (Google Apps Script).
  *
  * מה הקוד עושה:
- *   • analyze — מקבל צילום של מסך מכשיר לחץ הדם, מזהה את הספרות בעזרת זיהוי הטקסט (OCR)
- *               של Google Drive בחשבון שלך — בלי מפתחות ובלי עלות — ומחזיר סיסטולי / דיאסטולי / דופק.
+ *   • analyze — מקבל צילום של מסך מכשיר לחץ הדם ומחזיר סיסטולי / דיאסטולי / דופק.
+ *               קורא עם Gemini של Google (שכבה חינמית, כמו ב-family trip); בלי מפתח Gemini
+ *               או אם Gemini לא זמין — עם זיהוי הטקסט (OCR) של Google Drive בחשבון שלך.
  *   • save    — מוסיף שורה ללשונית "מדידות" בגיליון (כולל מניעת כפילויות).
  *   • list    — מחזיר את המדידות האחרונות.
  *
@@ -14,6 +15,10 @@
 // (הרחבות ← Apps Script); אם הסקריפט נפתח מתוך הגיליון אפשר להשאיר ריק.
 var SPREADSHEET_ID = '1bsXluNMZu4tYzahqACGpnlSbUcfpP6wZspXc8t5T_gA';
 
+// מפתח Gemini (חינמי) — אותו מפתח GEMINI_API_KEY של family trip, או מפתח חדש מ-https://aistudio.google.com/apikey
+// מדביקים בין הגרשיים, מריצים setup פעם אחת, ואפשר למחוק מכאן (הוא נשמר בהגדרות הסקריפט).
+var GEMINI_KEY_TO_SAVE = '';
+
 var SHEET_NAME = 'מדידות';
 var HEADERS = ['תאריך ושעה', 'סיסטולי', 'דיאסטולי', 'דופק', 'סיווג', 'הערות', 'מקור', 'מזהה'];
 
@@ -22,11 +27,18 @@ var HEADERS = ['תאריך ושעה', 'סיסטולי', 'דיאסטולי', 'ד�
 function setup() {
   var sheet = getSheet_();
   var props = PropertiesService.getScriptProperties();
+  if (GEMINI_KEY_TO_SAVE.trim()) {
+    props.setProperty('GEMINI_API_KEY', GEMINI_KEY_TO_SAVE.trim());
+    Logger.log('מפתח Gemini נשמר ✔ (אפשר למחוק אותו עכשיו מהשורה GEMINI_KEY_TO_SAVE)');
+  }
   if (!props.getProperty('APP_TOKEN')) {
     props.setProperty('APP_TOKEN', Utilities.getUuid().replace(/-/g, '').slice(0, 16));
   }
   buildChart_(sheet);
   Logger.log('הגיליון מוכן. קוד הגישה לאפליקציה: ' + props.getProperty('APP_TOKEN'));
+  if (!props.getProperty('GEMINI_API_KEY')) {
+    Logger.log('אין מפתח Gemini — הצילומים ייקראו בזיהוי טקסט רגיל (פחות מדויק).');
+  }
 }
 
 function onOpen() {
@@ -199,12 +211,75 @@ function listReadings_(limit) {
   return { ok: true, readings: readings, sheetUrl: getSpreadsheet_().getUrl() };
 }
 
-// ---------------------------------------------------------------- photo reading (Google Drive OCR)
+// ---------------------------------------------------------------- photo reading
 
 function analyzeImage_(base64, mediaType) {
   if (!base64) throw new Error('לא התקבלה תמונה');
-  var text = ocr_(Utilities.base64Decode(base64), mediaType);
-  return parseReading_(text);
+  var key = PropertiesService.getScriptProperties().getProperty('GEMINI_API_KEY');
+  if (key) {
+    var r = geminiRead_(key, base64, mediaType);
+    if (r) return r;
+  }
+  return parseReading_(ocr_(Utilities.base64Decode(base64), mediaType));
+}
+
+// Same approach as the family-trip screenshot scanner: Gemini flash on the free
+// tier, JSON schema output, trying the "-latest" aliases first. Returns null if
+// no model answered, so the caller can fall back to plain OCR.
+var GEMINI_MODELS = ['gemini-flash-latest', 'gemini-flash-lite-latest', 'gemini-2.5-flash'];
+
+function geminiRead_(key, base64, mediaType) {
+  var schema = {
+    type: 'OBJECT',
+    properties: {
+      readable: { type: 'BOOLEAN', description: 'true only if SYS and DIA are clearly legible' },
+      systolic: { type: 'INTEGER', description: 'SYS in mmHg (top, largest number); 0 if unreadable' },
+      diastolic: { type: 'INTEGER', description: 'DIA in mmHg (middle number); 0 if unreadable' },
+      pulse: { type: 'INTEGER', description: 'PULSE per minute (bottom, near a heart icon); 0 if not shown' },
+      note: { type: 'STRING', description: 'short Hebrew note if an irregular-heartbeat/movement icon or error code is shown, else empty' },
+    },
+    required: ['readable', 'systolic', 'diastolic', 'pulse', 'note'],
+  };
+  var prompt = 'This is a phone photo of a home blood-pressure monitor display with 7-segment digits: ' +
+    'SYS (systolic) on top, DIA (diastolic) in the middle, PULSE at the bottom. ' +
+    'Read the three numbers. Watch for 7-segment look-alikes (1/7, 5/6, 8/0/9) and glare. ' +
+    'Do not guess: if SYS or DIA is not clearly legible set readable=false. Return JSON only.';
+  var body = function (noThinking) {
+    var gen = { responseMimeType: 'application/json', responseSchema: schema, temperature: 0 };
+    if (noThinking) gen.thinkingConfig = { thinkingBudget: 0 };
+    return JSON.stringify({
+      contents: [{ role: 'user', parts: [{ text: prompt }, { inlineData: { mimeType: mediaType, data: base64 } }] }],
+      generationConfig: gen,
+    });
+  };
+  for (var i = 0; i < GEMINI_MODELS.length; i++) {
+    var url = 'https://generativelanguage.googleapis.com/v1beta/models/' + GEMINI_MODELS[i] + ':generateContent';
+    var call = function (noThinking) {
+      return UrlFetchApp.fetch(url, {
+        method: 'post',
+        contentType: 'application/json',
+        headers: { 'x-goog-api-key': key },
+        payload: body(noThinking),
+        muteHttpExceptions: true,
+      });
+    };
+    try {
+      var res = call(true);
+      if (res.getResponseCode() === 400) res = call(false); // model won't take the thinking flag
+      if (res.getResponseCode() !== 200) continue;
+      var data = JSON.parse(res.getContentText());
+      var text = data.candidates && data.candidates[0] && data.candidates[0].content &&
+        data.candidates[0].content.parts && data.candidates[0].content.parts[0].text;
+      if (!text) continue;
+      var r = JSON.parse(text);
+      if (r.readable && r.diastolic < r.systolic) r.category = classify_(r.systolic, r.diastolic);
+      else r.readable = false;
+      return r;
+    } catch (e) {
+      // try the next model
+    }
+  }
+  return null;
 }
 
 // Uploads the photo to Drive as a Google Doc — Drive runs OCR on the way in —
