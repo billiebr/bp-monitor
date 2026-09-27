@@ -164,6 +164,95 @@
   $('viewerDone').addEventListener('click', closeViewer);
   document.addEventListener('keydown', (e) => { if(e.key === 'Escape') closeViewer(); });
 
+
+  // ---- 5-minute rest timer before measuring ----
+  const REST_MS = 5 * 60 * 1000;
+  const STORAGE_REST = 'bp_tracker_rest_end';
+  const rest = $('rest'), restTime = $('restTime'), restProg = $('restProg');
+  const restCancel = $('restCancel'), restClose = $('restClose'), restTitle = $('restTitle');
+  const RING = 339.3;
+  let restTick = null, wakeLock = null;
+
+  async function keepAwake(on){
+    try{
+      if(on && 'wakeLock' in navigator && !wakeLock){ wakeLock = await navigator.wakeLock.request('screen'); }
+      if(!on && wakeLock){ await wakeLock.release(); wakeLock = null; }
+    }catch(e){ wakeLock = null; }
+  }
+
+  function beep(){
+    try{
+      const ctx = new (window.AudioContext || window.webkitAudioContext)();
+      [0, 0.35, 0.7].forEach(t => {
+        const o = ctx.createOscillator(), g = ctx.createGain();
+        o.frequency.value = 880; o.connect(g); g.connect(ctx.destination);
+        g.gain.setValueAtTime(0.0001, ctx.currentTime + t);
+        g.gain.exponentialRampToValueAtTime(0.3, ctx.currentTime + t + 0.02);
+        g.gain.exponentialRampToValueAtTime(0.0001, ctx.currentTime + t + 0.25);
+        o.start(ctx.currentTime + t); o.stop(ctx.currentTime + t + 0.3);
+      });
+    }catch(e){}
+    try{ navigator.vibrate && navigator.vibrate([300, 150, 300, 150, 300]); }catch(e){}
+  }
+
+  function renderRest(){
+    const end = Number(load(STORAGE_REST, 0));
+    const left = Math.max(0, end - Date.now());
+    const secs = Math.ceil(left / 1000);
+    restTime.textContent = Math.floor(secs / 60) + ':' + String(secs % 60).padStart(2, '0');
+    restProg.style.strokeDashoffset = String(RING * (1 - left / REST_MS));
+    if(left <= 0) finishRest();
+  }
+
+  function startRest(){
+    store(STORAGE_REST, Date.now() + REST_MS);
+    openRest();
+  }
+
+  function openRest(){
+    rest.classList.remove('done');
+    restTitle.textContent = 'מנוחה לפני מדידה';
+    restCancel.hidden = false; restClose.hidden = true;
+    restProg.style.transition = '';
+    rest.classList.add('open');
+    document.body.style.overflow = 'hidden';
+    keepAwake(true);
+    clearInterval(restTick);
+    renderRest();
+    restTick = setInterval(renderRest, 250);
+  }
+
+  function finishRest(){
+    clearInterval(restTick); restTick = null;
+    try{ localStorage.removeItem(STORAGE_REST); }catch(e){}
+    restTime.textContent = '✓';
+    restProg.style.transition = 'none';
+    restProg.style.strokeDashoffset = '0';   // full green ring = done
+    rest.classList.add('done');
+    restTitle.textContent = 'המנוחה הסתיימה';
+    restCancel.hidden = true; restClose.hidden = false;
+    keepAwake(false);
+    beep();
+  }
+
+  function closeRest(){
+    clearInterval(restTick); restTick = null;
+    try{ localStorage.removeItem(STORAGE_REST); }catch(e){}
+    rest.classList.remove('open', 'done');
+    document.body.style.overflow = '';
+    keepAwake(false);
+  }
+
+  $('restBtn').addEventListener('click', startRest);
+  restCancel.addEventListener('click', closeRest);
+  restClose.addEventListener('click', closeRest);
+  // Coming back to the app (screen was locked / switched apps): catch up, and re-take the wake lock.
+  document.addEventListener('visibilitychange', () => {
+    if(!document.hidden && rest.classList.contains('open') && !rest.classList.contains('done')){ keepAwake(true); renderRest(); }
+  });
+  // A rest that was running when the app was closed continues where it left off.
+  if(Number(load(STORAGE_REST, 0)) > Date.now()) openRest();
+
   let source = 'ידני';
 
   async function handlePhoto(input){
