@@ -30,16 +30,47 @@
   function renderHistory(){
     const list = getHistory();
     if(!list.length){ historyList.innerHTML = '<div class="empty">אין עדיין מדידות</div>'; return; }
-    historyList.innerHTML = list.map(e => `
+    historyList.innerHTML = list.map((e, i) => `
       <div class="entry">
         <div>
           <div class="val">${escapeHtml(e.sys)}/${escapeHtml(e.dia)}${e.pulse ? ` <span class="when">· דופק ${escapeHtml(e.pulse)}</span>` : ''}</div>
           ${e.notes ? `<div class="note">${escapeHtml(e.notes)}</div>` : ''}
         </div>
-        <div class="when">${escapeHtml(e.when)}${queue.some(q => q.id === e.id) ? ' ⏳' : ''}</div>
+        <div class="side">
+          <div class="when">${escapeHtml(e.when)}${queue.some(q => q.id === e.id) ? ' ⏳' : ''}</div>
+          <button class="del" type="button" data-index="${i}" aria-label="מחיקת המדידה" title="מחיקה">🗑</button>
+        </div>
       </div>
     `).join('');
   }
+
+  // Delete a reading: from the sheet (by id), from the send queue, and from this list.
+  historyList.addEventListener('click', async (ev) => {
+    const btn = ev.target.closest('.del');
+    if(!btn) return;
+    const list = getHistory();
+    const idx = Number(btn.dataset.index);
+    const e = list[idx];
+    if(!e) return;
+    if(!confirm(`למחוק את המדידה ${e.sys}/${e.dia} (${e.when})?\nהיא תימחק גם מהגיליון.`)) return;
+
+    btn.disabled = true;
+    const queued = e.id && queue.some(q => q.id === e.id);
+    if(e.id && !queued){
+      setStatus('מוחק...');
+      try{
+        await api({ action: 'delete', id: e.id });
+      }catch(err){
+        btn.disabled = false;
+        setStatus('המחיקה נכשלה: ' + err.message, 'err');
+        return;
+      }
+    }
+    if(queued){ queue = queue.filter(q => q.id !== e.id); store(STORAGE_QUEUE, queue); renderPending(); }
+    setHistory(list.filter((x, j) => j !== idx));
+    renderHistory();
+    setStatus(e.id ? 'המדידה נמחקה ✓' : 'נמחקה מהרשימה — מדידה ישנה, יש למחוק אותה ידנית גם בגיליון', e.id ? 'ok' : 'err');
+  });
 
   function renderPending(){
     pendingEl.textContent = queue.length ? `${queue.length} מדידות ממתינות לשליחה — יישלחו כשיהיה חיבור` : '';

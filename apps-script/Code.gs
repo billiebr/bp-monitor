@@ -6,6 +6,7 @@
  *               קורא עם Gemini של Google (שכבה חינמית, כמו ב-family trip); בלי מפתח Gemini
  *               או אם Gemini לא זמין — עם זיהוי הטקסט (OCR) של Google Drive בחשבון שלך.
  *   • save    — מוסיף שורה ללשונית "מדידות" בגיליון (כולל מניעת כפילויות).
+ *   • delete  — מוחק מדידה מהגיליון לפי המזהה שלה (למשל כפילות שנשמרה בטעות).
  *   • list    — מחזיר את המדידות האחרונות.
  *
  * התקנה: מדביקים את הקובץ, מריצים setup פעם אחת (מאשרים הרשאות), ומפרסמים גרסה חדשה.
@@ -135,6 +136,8 @@ function doPost(e) {
         return json_({ ok: true, reading: analyzeImage_(body.image, body.mediaType || 'image/jpeg') });
       case 'save':
         return json_(saveReading_(body.reading || {}));
+      case 'delete':
+        return json_(deleteReading_(String(body.id || '')));
       case 'list':
         return json_(listReadings_(Number(body.limit) || 200));
       default:
@@ -184,6 +187,22 @@ function saveReading_(r) {
     lock.releaseLock();
   }
   return { ok: true };
+}
+
+function deleteReading_(id) {
+  if (!id) return { ok: false, error: 'חסר מזהה מדידה' };
+  var lock = LockService.getScriptLock();
+  lock.waitLock(20000);
+  try {
+    var sheet = getSheet_();
+    if (sheet.getLastRow() < 2) return { ok: true, deleted: false };
+    var found = sheet.getRange(2, 8, sheet.getLastRow() - 1, 1).createTextFinder(id).matchEntireCell(true).findNext();
+    if (!found) return { ok: true, deleted: false };
+    sheet.deleteRow(found.getRow());
+    return { ok: true, deleted: true };
+  } finally {
+    lock.releaseLock();
+  }
 }
 
 function listReadings_(limit) {

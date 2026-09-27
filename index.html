@@ -201,6 +201,13 @@
   .entry .when{color:var(--muted); font-size:0.82rem;}
   .entry .val{font-weight:600;}
   .entry .note{color:var(--muted); font-size:0.82rem; margin-top:2px;}
+  .entry .side{display:flex; align-items:center; gap:10px;}
+  .entry .del{
+    background:none; border:1px solid var(--line); border-radius:8px;
+    color:var(--muted); font-size:0.95rem; padding:5px 8px; cursor:pointer; line-height:1;
+  }
+  .entry .del:hover{color:var(--danger); border-color:var(--danger);}
+  .entry .del:disabled{opacity:.5; cursor:default;}
   .empty{
     color:var(--muted);
     font-size:0.9rem;
