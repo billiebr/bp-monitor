@@ -14,22 +14,33 @@
  *   4. פריסה ← פריסה חדשה ← אפליקציית אינטרנט, "מי יכול לגשת: כולם".
  */
 
+// מזהה הגיליון (החלק שבכתובת שלו בין /d/ ל-/edit). נדרש כשהסקריפט לא נפתח מתוך הגיליון
+// (הרחבות ← Apps Script); אם הסקריפט נפתח מתוך הגיליון אפשר להשאיר ריק.
+var SPREADSHEET_ID = '1bsXluNMZu4tYzahqACGpnlSbUcfpP6wZspXc8t5T_gA';
+
 var SHEET_NAME = 'מדידות';
 var HEADERS = ['תאריך ושעה', 'סיסטולי', 'דיאסטולי', 'דופק', 'סיווג', 'הערות', 'מקור', 'מזהה'];
 var CLAUDE_MODEL = 'claude-opus-5';
 
 // ---------------------------------------------------------------- setup / menu
 
+// אפשר להדביק כאן את מפתח Claude, להריץ setup פעם אחת, ואז למחוק אותו מכאן (הוא נשמר בהגדרות הסקריפט).
+var CLAUDE_KEY_TO_SAVE = '';
+
 function setup() {
   var sheet = getSheet_();
   var props = PropertiesService.getScriptProperties();
+  if (CLAUDE_KEY_TO_SAVE && CLAUDE_KEY_TO_SAVE.indexOf('sk-ant-') === 0) {
+    props.setProperty('ANTHROPIC_API_KEY', CLAUDE_KEY_TO_SAVE.trim());
+    Logger.log('מפתח Claude נשמר ✔ — אפשר למחוק אותו עכשיו מהשורה CLAUDE_KEY_TO_SAVE.');
+  }
   if (!props.getProperty('APP_TOKEN')) {
     props.setProperty('APP_TOKEN', Utilities.getUuid().replace(/-/g, '').slice(0, 16));
   }
   buildChart_(sheet);
   Logger.log('הגיליון מוכן. קוד הגישה לאפליקציה: ' + props.getProperty('APP_TOKEN'));
   if (!props.getProperty('ANTHROPIC_API_KEY')) {
-    Logger.log('חסר מפתח Claude: בגיליון ← תפריט "לחץ דם" ← "הגדרת מפתח Claude".');
+    Logger.log('חסר מפתח Claude: הדביקו אותו בשורה CLAUDE_KEY_TO_SAVE והריצו setup שוב.');
   }
 }
 
@@ -64,8 +75,12 @@ function rebuildChart() {
   buildChart_(getSheet_());
 }
 
+function getSpreadsheet_() {
+  return SPREADSHEET_ID ? SpreadsheetApp.openById(SPREADSHEET_ID) : SpreadsheetApp.getActiveSpreadsheet();
+}
+
 function getSheet_() {
-  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  var ss = getSpreadsheet_();
   var sheet = ss.getSheetByName(SHEET_NAME);
   if (!sheet) {
     sheet = ss.insertSheet(SHEET_NAME, 0);
@@ -132,7 +147,7 @@ function doPost(e) {
     }
     switch (body.action) {
       case 'ping':
-        return json_({ ok: true, sheetUrl: SpreadsheetApp.getActiveSpreadsheet().getUrl() });
+        return json_({ ok: true, sheetUrl: getSpreadsheet_().getUrl() });
       case 'analyze':
         return json_({ ok: true, reading: analyzeImage_(body.image, body.mediaType || 'image/jpeg') });
       case 'save':
@@ -210,7 +225,7 @@ function listReadings_(limit) {
     });
   }
   readings.sort(function (a, b) { return new Date(b.takenAt) - new Date(a.takenAt); });
-  return { ok: true, readings: readings, sheetUrl: SpreadsheetApp.getActiveSpreadsheet().getUrl() };
+  return { ok: true, readings: readings, sheetUrl: getSpreadsheet_().getUrl() };
 }
 
 // ---------------------------------------------------------------- Claude vision
