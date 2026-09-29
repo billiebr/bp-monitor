@@ -191,6 +191,10 @@ function saveReading_(r) {
     var when = r.takenAt ? new Date(r.takenAt) : new Date();
     if (isNaN(when.getTime())) when = new Date();
     sheet.appendRow([when, sys, dia, pulse, classify_(sys, dia), String(r.note || ''), String(r.source || 'ידני'), id]);
+    // Keep rows in measurement order (a photo from the morning may be saved in the evening).
+    if (sheet.getLastRow() > 2) {
+      sheet.getRange(2, 1, sheet.getLastRow() - 1, HEADERS.length).sort({ column: 1, ascending: true });
+    }
   } finally {
     lock.releaseLock();
   }
