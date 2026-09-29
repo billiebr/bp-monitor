@@ -423,36 +423,35 @@ function parseReading_(text) {
 }
 
 // ---------------------------------------------------------------- one-time fix (29/09/2026)
-// The first 8 rows were written while the sheet's time zone was Los Angeles, so their
-// clock time is 10 hours behind Israel. Run fixOldTimes once (choose it ▶ Run).
-// It only touches these exact rows (by their ID) and refuses to run a second time.
-var OLD_ROW_IDS = [
-  '94a02f95-e4b4-46ae-b224-83c07cda51ec', '35919851-a438-45d4-9ea7-fe94f93edc56',
-  '66c27abb-5483-4987-83f2-8755b81afae7', 'd8df7d4c-a9f8-4420-a4f8-0325647871ab',
-  '9304e0ab-d9ab-43d6-b3f1-40b57328b30f', '42bb8886-37dd-4fc6-9cf5-cc533866521c',
-  '1daf2a2b-37ed-4d80-ad64-9c239c37e6ff', '1ada9b6f-91f0-4381-a35b-9a3a62ad82df',
-];
+// The first 8 rows were written while the sheet's time zone was Los Angeles, so the sheet
+// shows the wrong clock time. fixOldTimes sets each of them (found by its ID) to the exact
+// Israel time the app recorded, then sorts the sheet. Safe to run more than once.
+var OLD_ROW_TIMES = {
+  '94a02f95-e4b4-46ae-b224-83c07cda51ec': '2026-09-27 18:33', // 172/97
+  '35919851-a438-45d4-9ea7-fe94f93edc56': '2026-09-27 20:55', // 157/86
+  '66c27abb-5483-4987-83f2-8755b81afae7': '2026-09-27 23:28', // 181/96
+  'd8df7d4c-a9f8-4420-a4f8-0325647871ab': '2026-09-27 23:51', // 170/84
+  '9304e0ab-d9ab-43d6-b3f1-40b57328b30f': '2026-09-28 07:59', // 179/99
+  '1daf2a2b-37ed-4d80-ad64-9c239c37e6ff': '2026-09-28 21:45', // 193/103
+  '42bb8886-37dd-4fc6-9cf5-cc533866521c': '2026-09-28 21:50', // 170/92
+  '1ada9b6f-91f0-4381-a35b-9a3a62ad82df': '2026-09-29 11:12', // 170/102
+};
 
 function fixOldTimes() {
-  var props = PropertiesService.getScriptProperties();
-  if (props.getProperty('OLD_TIMES_FIXED')) {
-    Logger.log('התיקון כבר בוצע בעבר — לא עושים אותו שוב.');
-    return;
-  }
-  var sheet = getSheet_();
+  var sheet = getSheet_(); // also pins the sheet to Israel time
   var last = sheet.getLastRow();
   if (last < 2) return;
-  var range = sheet.getRange(2, 1, last - 1, 8);
-  var rows = range.getValues();
+  var ids = sheet.getRange(2, 8, last - 1, 1).getValues();
+  var times = sheet.getRange(2, 1, last - 1, 1).getValues();
   var fixed = 0;
-  rows.forEach(function (row) {
-    if (OLD_ROW_IDS.indexOf(String(row[7])) >= 0 && row[0] instanceof Date) {
-      row[0] = new Date(row[0].getTime() + 10 * 3600 * 1000);
+  ids.forEach(function (row, i) {
+    var t = OLD_ROW_TIMES[String(row[0])];
+    if (t) {
+      times[i][0] = Utilities.parseDate(t, TIME_ZONE, 'yyyy-MM-dd HH:mm');
       fixed++;
     }
   });
-  sheet.getRange(2, 1, rows.length, 1).setValues(rows.map(function (r) { return [r[0]]; }));
-  range.sort({ column: 1, ascending: true });
-  props.setProperty('OLD_TIMES_FIXED', new Date().toISOString());
-  Logger.log('תוקנו ' + fixed + ' שורות (+10 שעות) והגיליון מוין לפי זמן המדידה.');
+  sheet.getRange(2, 1, last - 1, 1).setValues(times);
+  sheet.getRange(2, 1, last - 1, HEADERS.length).sort({ column: 1, ascending: true });
+  Logger.log('תוקנו ' + fixed + ' שורות לשעון ישראל, והגיליון מוין לפי זמן המדידה.');
 }
