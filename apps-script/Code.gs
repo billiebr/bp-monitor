@@ -5,7 +5,8 @@
  *   • analyze — מקבל צילום של מסך מכשיר לחץ הדם ומחזיר סיסטולי / דיאסטולי / דופק.
  *               קורא עם Gemini של Google (שכבה חינמית, כמו ב-family trip); בלי מפתח Gemini
  *               או אם Gemini לא זמין — עם זיהוי הטקסט (OCR) של Google Drive בחשבון שלך.
- *   • save    — מוסיף שורה ללשונית "מדידות" בגיליון (כולל מניעת כפילויות).
+ *   • save    — מוסיף שורה ללשונית של חודש המדידה (למשל "אוקטובר 2026"); לשונית חדשה
+ *               נפתחת אוטומטית בכל חודש חדש. כולל מניעת כפילויות.
  *   • delete  — מוחק מדידה מהגיליון לפי המזהה שלה (למשל כפילות שנשמרה בטעות).
  *   • list    — מחזיר את המדידות האחרונות.
  *
@@ -20,13 +21,18 @@ var SPREADSHEET_ID = '1bsXluNMZu4tYzahqACGpnlSbUcfpP6wZspXc8t5T_gA';
 // מדביקים בין הגרשיים, מריצים setup פעם אחת, ואפשר למחוק מכאן (הוא נשמר בהגדרות הסקריפט).
 var GEMINI_KEY_TO_SAVE = '';
 
-var SHEET_NAME = 'מדידות';
 var HEADERS = ['תאריך ושעה', 'סיסטולי', 'דיאסטולי', 'דופק', 'סיווג', 'הערות', 'מקור', 'מזהה'];
+var TIME_ZONE = 'Asia/Jerusalem';
+
+// Each month gets its own tab, named like "אוקטובר 2026".
+var MONTHS = ['ינואר', 'פברואר', 'מרץ', 'אפריל', 'מאי', 'יוני', 'יולי', 'אוגוסט', 'ספטמבר', 'אוקטובר', 'נובמבר', 'דצמבר'];
+var MONTH_TAB = new RegExp('^(' + MONTHS.join('|') + ') (\\d{4})$');
+// The single tab used before monthly tabs; splitByMonth() moves its rows out.
+var LEGACY_SHEET_NAME = 'מדידות';
 
 // ---------------------------------------------------------------- setup / menu
 
 function setup() {
-  var sheet = getSheet_();
   var props = PropertiesService.getScriptProperties();
   if (GEMINI_KEY_TO_SAVE.trim()) {
     props.setProperty('GEMINI_API_KEY', GEMINI_KEY_TO_SAVE.trim());
@@ -35,8 +41,8 @@ function setup() {
   if (!props.getProperty('APP_TOKEN')) {
     props.setProperty('APP_TOKEN', Utilities.getUuid().replace(/-/g, '').slice(0, 16));
   }
-  buildChart_(sheet);
-  Logger.log('הגיליון מוכן. קוד הגישה לאפליקציה: ' + props.getProperty('APP_TOKEN'));
+  var sheet = monthSheet_(new Date());
+  Logger.log('הגיליון מוכן (לשונית "' + sheet.getName() + '"). קוד הגישה לאפליקציה: ' + props.getProperty('APP_TOKEN'));
   if (!props.getProperty('GEMINI_API_KEY')) {
     Logger.log('אין מפתח Gemini — הצילומים ייקראו בזיהוי טקסט רגיל (פחות מדויק).');
   }
@@ -46,7 +52,7 @@ function onOpen() {
   SpreadsheetApp.getUi()
     .createMenu('לחץ דם')
     .addItem('הצגת קוד גישה לאפליקציה', 'showToken')
-    .addItem('בניית גרף מחדש', 'rebuildChart')
+    .addItem('בניית גרפים מחדש', 'rebuildChart')
     .addToUi();
 }
 
@@ -56,40 +62,62 @@ function showToken() {
 }
 
 function rebuildChart() {
-  buildChart_(getSheet_());
+  monthSheets_().forEach(function (sh) { buildChart_(sh, sh.getName()); });
 }
 
 function getSpreadsheet_() {
-  return SPREADSHEET_ID ? SpreadsheetApp.openById(SPREADSHEET_ID) : SpreadsheetApp.getActiveSpreadsheet();
+  var ss = SPREADSHEET_ID ? SpreadsheetApp.openById(SPREADSHEET_ID) : SpreadsheetApp.getActiveSpreadsheet();
+  // Cell dates are written as clock time in the sheet's time zone — keep it on Israel time.
+  if (ss.getSpreadsheetTimeZone() !== TIME_ZONE) ss.setSpreadsheetTimeZone(TIME_ZONE);
+  return ss;
 }
 
-var TIME_ZONE = 'Asia/Jerusalem';
+function monthName_(date) {
+  var m = Number(Utilities.formatDate(date, TIME_ZONE, 'M'));
+  return MONTHS[m - 1] + ' ' + Utilities.formatDate(date, TIME_ZONE, 'yyyy');
+}
 
-function getSheet_() {
+// Sort key for a month tab name: 2026-10 → 202610.
+function monthKey_(name) {
+  var m = MONTH_TAB.exec(name);
+  return m ? Number(m[2]) * 100 + MONTHS.indexOf(m[1]) + 1 : 0;
+}
+
+// All month tabs, newest first.
+function monthSheets_() {
+  return getSpreadsheet_().getSheets()
+    .filter(function (sh) { return MONTH_TAB.test(sh.getName()); })
+    .sort(function (x, y) { return monthKey_(y.getName()) - monthKey_(x.getName()); });
+}
+
+// The tab for the month of `date`; created (headers, colors, chart) on first use.
+function monthSheet_(date) {
   var ss = getSpreadsheet_();
-  // Dates are stored as exact moments; the sheet shows them in ITS time zone.
-  // Pin it to Israel so the hour in the sheet is the real local hour.
-  if (ss.getSpreadsheetTimeZone() !== TIME_ZONE) ss.setSpreadsheetTimeZone(TIME_ZONE);
-  var sheet = ss.getSheetByName(SHEET_NAME);
+  var name = monthName_(date);
+  var sheet = ss.getSheetByName(name);
   if (!sheet) {
-    sheet = ss.insertSheet(SHEET_NAME, 0);
+    // Place it among the month tabs so they stay newest-first.
+    var key = monthKey_(name);
+    var newer = ss.getSheets().filter(function (sh) { return monthKey_(sh.getName()) > key; });
+    var index = newer.length ? Math.max.apply(null, newer.map(function (sh) { return sh.getIndex(); })) : 0;
+    sheet = ss.insertSheet(name, index);
+    setupMonthSheet_(sheet);
   }
-  if (sheet.getLastRow() === 0) {
-    sheet.appendRow(HEADERS);
-    sheet.setRightToLeft(true);
-    sheet.setFrozenRows(1);
-    sheet.getRange(1, 1, 1, HEADERS.length).setFontWeight('bold').setBackground('#fde8ea');
-    sheet.getRange('A:A').setNumberFormat('dd/MM/yyyy HH:mm');
-    sheet.setColumnWidth(1, 140);
-    sheet.setColumnWidth(5, 170);
-    sheet.setColumnWidth(6, 220);
-    sheet.hideColumns(8);
-    addCategoryColors_(sheet);
-  }
-  // 24-hour date/time in column A (also fixes sheets created before this setting).
-  var a = sheet.getRange('A2:A');
-  if (a.getNumberFormat() !== 'dd/MM/yyyy HH:mm') a.setNumberFormat('dd/MM/yyyy HH:mm');
   return sheet;
+}
+
+function setupMonthSheet_(sheet) {
+  sheet.getRange(1, 1, 1, HEADERS.length).setValues([HEADERS]);
+  sheet.setRightToLeft(true);
+  sheet.setFrozenRows(1);
+  sheet.getRange(1, 1, 1, HEADERS.length).setFontWeight('bold').setBackground('#fde8ea');
+  sheet.getRange('A2:A').setNumberFormat('dd/MM/yyyy HH:mm');
+  sheet.setColumnWidth(1, 140);
+  sheet.setColumnWidth(5, 170);
+  sheet.setColumnWidth(6, 220);
+  sheet.hideColumns(8);
+  addCategoryColors_(sheet);
+  buildChart_(sheet, sheet.getName());
 }
 
 function addCategoryColors_(sheet) {
@@ -108,20 +136,40 @@ function addCategoryColors_(sheet) {
   sheet.setConditionalFormatRules(rules);
 }
 
-function buildChart_(sheet) {
+function buildChart_(sheet, title) {
   sheet.getCharts().forEach(function (c) { sheet.removeChart(c); });
   var chart = sheet.newChart()
     .setChartType(Charts.ChartType.LINE)
-    .addRange(sheet.getRange('A1:D1000'))
+    .addRange(sheet.getRange('A1:D200'))
     .setNumHeaders(1)
     .setPosition(2, 10, 0, 0)
-    .setOption('title', 'לחץ דם ודופק לאורך זמן')
+    .setOption('title', 'לחץ דם ודופק — ' + title)
     .setOption('colors', ['#dc2626', '#2563eb', '#16a34a'])
     .setOption('pointSize', 5)
     .setOption('width', 700)
     .setOption('height', 380)
     .build();
   sheet.insertChart(chart);
+}
+
+// Finds the row holding reading `id` in the month tabs (and the old single tab, if any).
+function findReading_(id) {
+  var sheets = monthSheets_();
+  var legacy = getSpreadsheet_().getSheetByName(LEGACY_SHEET_NAME);
+  if (legacy) sheets.push(legacy);
+  for (var i = 0; i < sheets.length; i++) {
+    var sh = sheets[i];
+    if (sh.getLastRow() < 2) continue;
+    var cell = sh.getRange(2, 8, sh.getLastRow() - 1, 1).createTextFinder(id).matchEntireCell(true).findNext();
+    if (cell) return { sheet: sh, row: cell.getRow() };
+  }
+  return null;
+}
+
+function sortSheet_(sheet) {
+  if (sheet.getLastRow() > 2) {
+    sheet.getRange(2, 1, sheet.getLastRow() - 1, HEADERS.length).sort({ column: 1, ascending: true });
+  }
 }
 
 // ---------------------------------------------------------------- web app
@@ -182,23 +230,18 @@ function saveReading_(r) {
   var lock = LockService.getScriptLock();
   lock.waitLock(20000);
   try {
-    var sheet = getSheet_();
     // Offline retries resend the same id — never write it twice.
-    if (sheet.getLastRow() > 1) {
-      var found = sheet.getRange(2, 8, sheet.getLastRow() - 1, 1).createTextFinder(id).matchEntireCell(true).findNext();
-      if (found) return { ok: true, duplicate: true };
-    }
+    if (findReading_(id)) return { ok: true, duplicate: true };
     var when = r.takenAt ? new Date(r.takenAt) : new Date();
     if (isNaN(when.getTime())) when = new Date();
+    var sheet = monthSheet_(when);
     sheet.appendRow([when, sys, dia, pulse, classify_(sys, dia), String(r.note || ''), String(r.source || 'ידני'), id]);
     // Keep rows in measurement order (a photo from the morning may be saved in the evening).
-    if (sheet.getLastRow() > 2) {
-      sheet.getRange(2, 1, sheet.getLastRow() - 1, HEADERS.length).sort({ column: 1, ascending: true });
-    }
+    sortSheet_(sheet);
+    return { ok: true, tab: sheet.getName() };
   } finally {
     lock.releaseLock();
   }
-  return { ok: true };
 }
 
 function deleteReading_(id) {
@@ -206,11 +249,9 @@ function deleteReading_(id) {
   var lock = LockService.getScriptLock();
   lock.waitLock(20000);
   try {
-    var sheet = getSheet_();
-    if (sheet.getLastRow() < 2) return { ok: true, deleted: false };
-    var found = sheet.getRange(2, 8, sheet.getLastRow() - 1, 1).createTextFinder(id).matchEntireCell(true).findNext();
-    if (!found) return { ok: true, deleted: false };
-    sheet.deleteRow(found.getRow());
+    var hit = findReading_(id);
+    if (!hit) return { ok: true, deleted: false };
+    hit.sheet.deleteRow(hit.row);
     return { ok: true, deleted: true };
   } finally {
     lock.releaseLock();
@@ -218,13 +259,12 @@ function deleteReading_(id) {
 }
 
 function listReadings_(limit) {
-  var sheet = getSheet_();
-  var last = sheet.getLastRow();
   var readings = [];
-  if (last > 1) {
-    var start = Math.max(2, last - limit + 1);
-    var rows = sheet.getRange(start, 1, last - start + 1, 8).getValues();
-    rows.forEach(function (row) {
+  var sheets = monthSheets_();
+  for (var i = 0; i < sheets.length && readings.length < limit; i++) {
+    var sh = sheets[i];
+    if (sh.getLastRow() < 2) continue;
+    sh.getRange(2, 1, sh.getLastRow() - 1, 8).getValues().forEach(function (row) {
       if (!row[1]) return;
       readings.push({
         takenAt: row[0] instanceof Date ? row[0].toISOString() : String(row[0]),
@@ -239,7 +279,58 @@ function listReadings_(limit) {
     });
   }
   readings.sort(function (a, b) { return new Date(b.takenAt) - new Date(a.takenAt); });
-  return { ok: true, readings: readings, sheetUrl: getSpreadsheet_().getUrl() };
+  return { ok: true, readings: readings.slice(0, limit), sheetUrl: getSpreadsheet_().getUrl() };
+}
+
+// ---------------------------------------------------------------- one-time move to monthly tabs
+// Run splitByMonth once (choose it ▶ Run). It copies every row of the old "מדידות" tab into
+// its month's tab, checks every row arrived, and only then deletes the old tab. It also
+// opens the tab for the current month. Running it again does nothing harmful.
+function splitByMonth() {
+  var ss = getSpreadsheet_();
+  var lock = LockService.getScriptLock();
+  lock.waitLock(30000);
+  try {
+    monthSheet_(new Date());
+    var legacy = ss.getSheetByName(LEGACY_SHEET_NAME);
+    if (!legacy) { Logger.log('אין לשונית "' + LEGACY_SHEET_NAME + '" — אין מה להעביר.'); return; }
+    var last = legacy.getLastRow();
+    var rows = last > 1 ? legacy.getRange(2, 1, last - 1, HEADERS.length).getValues() : [];
+    var byTab = {}, skipped = 0;
+    rows.forEach(function (row) {
+      if (!(row[0] instanceof Date) || !row[1]) { skipped++; return; }
+      if (row[7] && findReading_InMonths_(String(row[7]))) return; // already moved
+      var name = monthName_(row[0]);
+      (byTab[name] = byTab[name] || { date: row[0], rows: [] }).rows.push(row);
+    });
+    Object.keys(byTab).forEach(function (name) {
+      var sh = monthSheet_(byTab[name].date);
+      var r = byTab[name].rows;
+      sh.getRange(sh.getLastRow() + 1, 1, r.length, HEADERS.length).setValues(r);
+      sortSheet_(sh);
+      Logger.log('לשונית "' + name + '": הועברו ' + r.length + ' מדידות.');
+    });
+    // Verify every row with an ID is now in a month tab before removing the old tab.
+    var missing = rows.filter(function (row) { return row[7] && !findReading_InMonths_(String(row[7])); });
+    if (missing.length || skipped) {
+      Logger.log('⚠️ ' + (missing.length + skipped) + ' שורות לא הועברו — הלשונית "' + LEGACY_SHEET_NAME + '" נשארת כמו שהיא.');
+      return;
+    }
+    ss.deleteSheet(legacy);
+    Logger.log('✔ כל ' + rows.length + ' המדידות הועברו ללשוניות לפי חודש, והלשונית הישנה נמחקה.');
+  } finally {
+    lock.releaseLock();
+  }
+}
+
+function findReading_InMonths_(id) {
+  var sheets = monthSheets_();
+  for (var i = 0; i < sheets.length; i++) {
+    var sh = sheets[i];
+    if (sh.getLastRow() < 2) continue;
+    if (sh.getRange(2, 8, sh.getLastRow() - 1, 1).createTextFinder(id).matchEntireCell(true).findNext()) return true;
+  }
+  return false;
 }
 
 // ---------------------------------------------------------------- photo reading
@@ -420,38 +511,4 @@ function parseReading_(text) {
     }
   }
   return { readable: false, systolic: 0, diastolic: 0, pulse: 0, device_datetime: '', note: '', rawText: String(text || '').slice(0, 200) };
-}
-
-// ---------------------------------------------------------------- one-time fix (29/09/2026)
-// The first 8 rows were written while the sheet's time zone was Los Angeles, so the sheet
-// shows the wrong clock time. fixOldTimes sets each of them (found by its ID) to the exact
-// Israel time the app recorded, then sorts the sheet. Safe to run more than once.
-var OLD_ROW_TIMES = {
-  '94a02f95-e4b4-46ae-b224-83c07cda51ec': '2026-09-27 18:33', // 172/97
-  '35919851-a438-45d4-9ea7-fe94f93edc56': '2026-09-27 20:55', // 157/86
-  '66c27abb-5483-4987-83f2-8755b81afae7': '2026-09-27 23:28', // 181/96
-  'd8df7d4c-a9f8-4420-a4f8-0325647871ab': '2026-09-27 23:51', // 170/84
-  '9304e0ab-d9ab-43d6-b3f1-40b57328b30f': '2026-09-28 07:59', // 179/99
-  '1daf2a2b-37ed-4d80-ad64-9c239c37e6ff': '2026-09-28 21:45', // 193/103
-  '42bb8886-37dd-4fc6-9cf5-cc533866521c': '2026-09-28 21:50', // 170/92
-  '1ada9b6f-91f0-4381-a35b-9a3a62ad82df': '2026-09-29 11:12', // 170/102
-};
-
-function fixOldTimes() {
-  var sheet = getSheet_(); // also pins the sheet to Israel time
-  var last = sheet.getLastRow();
-  if (last < 2) return;
-  var ids = sheet.getRange(2, 8, last - 1, 1).getValues();
-  var times = sheet.getRange(2, 1, last - 1, 1).getValues();
-  var fixed = 0;
-  ids.forEach(function (row, i) {
-    var t = OLD_ROW_TIMES[String(row[0])];
-    if (t) {
-      times[i][0] = Utilities.parseDate(t, TIME_ZONE, 'yyyy-MM-dd HH:mm');
-      fixed++;
-    }
-  });
-  sheet.getRange(2, 1, last - 1, 1).setValues(times);
-  sheet.getRange(2, 1, last - 1, HEADERS.length).sort({ column: 1, ascending: true });
-  Logger.log('תוקנו ' + fixed + ' שורות לשעון ישראל, והגיליון מוין לפי זמן המדידה.');
 }
