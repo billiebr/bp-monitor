@@ -21,6 +21,9 @@ var SPREADSHEET_ID = '1bsXluNMZu4tYzahqACGpnlSbUcfpP6wZspXc8t5T_gA';
 // מדביקים בין הגרשיים, מריצים setup פעם אחת, ואפשר למחוק מכאן (הוא נשמר בהגדרות הסקריפט).
 var GEMINI_KEY_TO_SAVE = '';
 
+// Reported to the app so it can warn when the deployed web app runs older code.
+var CODE_VERSION = 'monthly-tabs';
+
 var HEADERS = ['תאריך ושעה', 'סיסטולי', 'דיאסטולי', 'דופק', 'סיווג', 'הערות', 'מקור', 'מזהה'];
 var TIME_ZONE = 'Asia/Jerusalem';
 
@@ -187,7 +190,7 @@ function doPost(e) {
     }
     switch (body.action) {
       case 'ping':
-        return json_({ ok: true, sheetUrl: getSpreadsheet_().getUrl() });
+        return json_({ ok: true, sheetUrl: getSpreadsheet_().getUrl(), version: CODE_VERSION });
       case 'analyze':
         return json_({ ok: true, reading: analyzeImage_(body.image, body.mediaType || 'image/jpeg') });
       case 'save':

@@ -264,9 +264,20 @@
     sheetLink.hidden = false;
   }
   setSheetUrl(load(STORAGE_SHEET, ''));
-  // Already connected from before this feature? Ask the sheet for its address once.
-  if(!load(STORAGE_SHEET, '') && getUrl() && getToken()){
-    api({ action: 'ping' }).then(r => setSheetUrl(r.sheetUrl)).catch(() => {});
+
+  // ---- is the sheet's web app running the current code? ----
+  const NEEDED_VERSION = 'monthly-tabs';
+  function checkServer(pong){
+    setSheetUrl(pong.sheetUrl);
+    if(pong.version !== NEEDED_VERSION){
+      setStatus('⚠️ האפליקציה מחוברת לגרסה ישנה של הקוד בגיליון — המדידות לא ייכנסו ללשונית החודש. ' +
+        'צריך לעדכן את הפריסה (Deploy ← Manage deployments ← ✏️ ← New version) שהכתובת שלה מופיעה ב"הגדרת חיבור לגיליון".', 'err');
+      return false;
+    }
+    return true;
+  }
+  if(getUrl() && getToken()){
+    api({ action: 'ping' }).then(checkServer).catch(() => {});
   }
 
 
@@ -370,8 +381,7 @@
     setStatus('בודק חיבור...');
     try{
       const pong = await api({ action: 'ping' });
-      setSheetUrl(pong.sheetUrl);
-      setStatus('מחובר לגיליון ✓', 'ok');
+      if(checkServer(pong)) setStatus('מחובר לגיליון ✓ (גרסה מעודכנת)', 'ok');
       configBlock.open = false;
       flushQueue();
     }catch(err){
